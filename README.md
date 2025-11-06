@@ -1,3 +1,6 @@
+REESCRIBIR, AHORA TIENE TODA LA INDO, EN LA ENTREGA DEBE TENER SOLO LO ESCENCIAL
+
+SE IMPLEMENTARA LA HEURISTICA BUSQUEDA TABU (TABU SEARCH)
 # Instrucciones del Proyecto: Optimización Híbrida para el CFLP
 
 ## 1. Objetivo General
@@ -106,7 +109,7 @@ Se debe encontrar la solución óptima (con el algoritmo híbrido) para cada ins
 
 - Instance50x50.dat, instance1000x300.dat: Ejemplos de instancias en formato .dat que AMPL puede leer. Usar como referencia para la conversión.
 
-- logfile.txt: (Archivo de registro).
+- logfile.txt: Archivo de registro.
 
 ## 7. Formato de Entrega
 La entrega consiste en un único archivo .zip que debe contener:
@@ -134,3 +137,45 @@ La entrega consiste en un único archivo .zip que debe contener:
     - La matriz de asignación (qué cliente está asignado a qué centro).
 
 - Nota: Para matrices de asignación muy grandes (ej. 5000x5000), es aceptable reducir el formato a una lista de pares (cliente, centro_asignado) en lugar de la matriz binaria completa.
+
+# instalacion: como preparar el entorno
+
+1. Clonar el repositorio
+git clone ...
+cd CFLP_PROYECTO
+
+2. Crear y activar el entorno virtual
+python -m venv .venv
+source .venv/bin/activate  # (o .venv\Scripts\activate en Windows)
+
+3. Instalar dependencias
+pip install -r requirements.txt
+
+
+Uso / Ejecución: El comando exacto para correr el programa.
+
+# Ejemplo de cómo ejecutar el main.py
+python src/main.py --instance "2000x2000_1" --iterations 500 --mode "SS"
+
+
+# Estructura de archivos
+
+CFLP_PROYECTO/
+├── .venv/                     # El entorno virtual de Python
+├── data/
+│   ├── instances_txt/         # <-- Instancias en formato txt
+│   ├── instances_dat/         # <-- instancias en formato dat
+│   └── solutions/             # <-- resultados
+│
+├── models/
+│   ├── cflp_full.mod          # Modelo que encuentra el óptimo real (variables 'y' y 'x')
+│   └── cflp_assignment.mod    # Modelo que solo asigna (variable 'x', 'y' es un parámetro)
+│
+├── src/
+│   ├── main.py                # Punto de entrada principal para ejecutar todo
+│   ├── data_parser.py         # Script para convertir .txt -> .dat
+│   ├── heuristic.py           # Lógica de heurística
+│   └── ampl_solver.py         # Interfaz para llamar a AMPL desde Python
+│
+├── .gitignore                 # Para ignorar .venv, __pycache__, etc.
+└── requirements.txt           # Lista de librerías (amplpy, pandas)
