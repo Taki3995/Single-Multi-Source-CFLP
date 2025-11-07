@@ -6,6 +6,5 @@
 - Windows: .venv\Scripts\activate
 - Linux/macOS: source .venv/bin/activate
 4.- Seleccionar interprete (usar este nuevo entorno)
-5.- Instalar librerias pip install amplpy pandas
-
+5.- Instalar librerias pip install amplpy pandas 
 

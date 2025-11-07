@@ -161,21 +161,25 @@ python src/main.py --instance "2000x2000_1" --iterations 500 --mode "SS"
 # Estructura de archivos
 
 CFLP_PROYECTO/
-├── .venv/                     # El entorno virtual de Python
+├── .venv/                        # Entorno virtual de Python
 ├── data/
-│   ├── instances_txt/         # <-- Instancias en formato txt
-│   ├── instances_dat/         # <-- instancias en formato dat
-│   └── solutions/             # <-- resultados
+│   ├── instances_txt/            # Instancias en formato txt
+│   ├── instances_dat/            # instancias en formato dat
+│   └── solutions/                # resultados mejores soluciones encontradas por heuristica + AMPL
 │
 ├── models/
-│   ├── cflp_full.mod          # Modelo que encuentra el óptimo real (variables 'y' y 'x')
-│   └── cflp_assignment.mod    # Modelo que solo asigna (variable 'x', 'y' es un parámetro)
+│   ├── cflp_MultiSource.mod      # Modelo que encuentra el óptimo MultiSource
+│   └── cflp_SingleSource.mod     # Modelo que encuentra el óptimo SingleSource
 │
 ├── src/
-│   ├── main.py                # Punto de entrada principal para ejecutar todo
-│   ├── data_parser.py         # Script para convertir .txt -> .dat
-│   ├── heuristic.py           # Lógica de heurística
-│   └── ampl_solver.py         # Interfaz para llamar a AMPL desde Python
+│   ├── __init__.py
+│   ├── main.py                   # Punto de entrada principal para ejecutar todo
+│   ├── data_parser.py            # Script para convertir .txt -> .dat
+│   ├── heuristic.py              # Lógica de heurística Tabu Search. Propone combinaciones de centros
+│   ├── ampl_solver.py            # Interfaz para llamar a AMPL desde Python. Dos funciones (solo AMPL y AMPL + Heuristic)
+│   └──utils.py                   # funciones utilidades
 │
-├── .gitignore                 # Para ignorar .venv, __pycache__, etc.
-└── requirements.txt           # Lista de librerías (amplpy, pandas)
+├── .gitignore                    # Para ignorar .venv, __pycache__, etc.
+├── requirements.txt              # Lista de librerías (amplpy, pandas)
+├── Instructions.md               # Instrucciones para ejecutar trabajo
+└── report.xlsx                   # Reporte completo de soluciones encontradas para cada instancia
