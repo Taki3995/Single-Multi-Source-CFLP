@@ -39,36 +39,65 @@ def save_solution_to_file(sol_dir, instance_name, mode, cost, open_facilities, a
     except Exception as e:
         print(f"[utils] Error guardando solución: {e}")
 
-def update_report_excel(report_path, instance_name, mode, optimal_cost, heuristic_cost, iterations):
+def update_report_excel(report_path, instance_name, mode, optimal_cost=None, heuristic_cost=None, iterations=None):
     """
-    Actualiza la planilla Excel con los resultados de esta corrida.
+    Lee, actualiza y guarda la planilla Excel.
+    Busca la fila por (instance, mode) y actualiza las columnas
+    correspondientes. Si no existe, crea la fila.
     """
     print(f"[Utils] Actualizando reporte: {report_path}")
     
-    # Datos nuevos
-    new_data = {
-        'Instancia': [instance_name],
-        'Modo': [mode],
-        'Iteraciones_Heuristica': [iterations],
-        'Costo_Optimo': [optimal_cost],
-        'Costo_Heuristica': [heuristic_cost]
-    }
-    new_df = pd.DataFrame(new_data)
+    # Columnas que esperamos
+    cols = ['Instancia', 'Modo', 'Costo_Optimo', 'Costo_Heuristica', 'Iteraciones_Heuristica']
     
-    # Si el archivo no existe, lo crea.
-    if not os.path.exists(report_path):
-        new_df.to_excel(report_path, index=False, sheet_name="Resultados")
-    else:
-        # Si existe, lo lee y añade la nueva fila
+    # 1. Leer el archivo (o crear un DataFrame vacío)
+    if os.path.exists(report_path):
         try:
-            # Usar 'openpyxl' como motor para leer y escribir .xlsx
             df = pd.read_excel(report_path, engine='openpyxl')
-            
-            # (Opcional: lógica para evitar duplicados si corres lo mismo)
-            
-            df = pd.concat([df, new_df], ignore_index=True)
-            df.to_excel(report_path, index=False, sheet_name="Resultados")
         except Exception as e:
-            print(f"[Utils] Error actualizando Excel: {e}")
-            # Si falla, guarda un CSV como respaldo
-            new_df.to_csv(report_path.replace('.xlsx', f'_{instance_name}.csv'), index=False)
+            print(f"[Utils] Error leyendo Excel. Creando uno nuevo. Error: {e}")
+            df = pd.DataFrame(columns=cols)
+    else:
+        df = pd.DataFrame(columns=cols)
+        
+    # 2. Buscar la fila
+    # (mask = máscara booleana)
+    mask = (df['Instancia'] == instance_name) & (df['Modo'] == mode)
+    idx_list = df.index[mask].tolist()
+    
+    if not idx_list:
+        # 3a. No existe la fila: Crear una nueva
+        new_row_data = {
+            'Instancia': instance_name,
+            'Modo': mode,
+            'Costo_Optimo': optimal_cost,
+            'Costo_Heuristica': heuristic_cost,
+            'Iteraciones_Heuristica': iterations
+        }
+        new_row_df = pd.DataFrame([new_row_data])
+        df = pd.concat([df, new_row_df], ignore_index=True)
+        print("[Utils] Fila nueva creada en el reporte.")
+        
+    else:
+        # 3b. Existe la fila: Actualizarla
+        row_index = idx_list[0]
+        
+        # Actualiza solo los valores que se pasaron (que no son None)
+        if optimal_cost is not None:
+            df.loc[row_index, 'Costo_Optimo'] = optimal_cost
+            print(f"[Utils] Actualizado 'Costo_Optimo' a: {optimal_cost}")
+            
+        if heuristic_cost is not None:
+            df.loc[row_index, 'Costo_Heuristica'] = heuristic_cost
+            print(f"[Utils] Actualizado 'Costo_Heuristica' a: {heuristic_cost}")
+
+        if iterations is not None:
+            df.loc[row_index, 'Iteraciones_Heuristica'] = iterations
+            print(f"[Utils] Actualizado 'Iteraciones_Heuristica' a: {iterations}")
+
+    # 4. Guardar el archivo
+    try:
+        df.to_excel(report_path, index=False, sheet_name="Resultados")
+        print("[Utils] Reporte guardado con éxito.")
+    except Exception as e:
+        print(f"[Utils] ERROR: No se pudo guardar el Excel. ¿Está abierto? Error: {e}")

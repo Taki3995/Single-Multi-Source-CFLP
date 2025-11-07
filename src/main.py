@@ -53,7 +53,7 @@ def main(args):
 
     print(f"--- ACCIÓN: {args.action} | INSTANCIA: {args.instance} | MODO: {args.mode} ---")
 
-    # --- Preparar archivos para esta instancia ---
+    # Preparar archivos para esta instancia
     dat_file = os.path.join(DAT_DIR, f"{args.instance}.dat")
     if not os.path.exists(dat_file):
         # Intentar parsear si no existe
