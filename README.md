@@ -177,7 +177,7 @@ CFLP_PROYECTO/
 │   ├── data_parser.py            # Script para convertir .txt -> .dat
 │   ├── heuristic.py              # Lógica de heurística Tabu Search. Propone combinaciones de centros
 │   ├── ampl_solver.py            # Interfaz para llamar a AMPL desde Python. Dos funciones (solo AMPL y AMPL + Heuristic)
-│   └──utils.py                   # funciones utilidades
+│   └── utils.py                   # funciones utilidades
 │
 ├── .gitignore                    # Para ignorar .venv, __pycache__, etc.
 ├── requirements.txt              # Lista de librerías (amplpy, pandas)

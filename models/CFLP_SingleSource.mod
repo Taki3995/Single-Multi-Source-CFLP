@@ -1,9 +1,6 @@
 option solver gurobi;
-#option solver ipopt;
-#option solver bonmin;
-#options bonmin_options "bonmin.algorithm=B-BB bonmin.bb_log_interval=6 print_level=4 linear_solver=ma57"; 
-#option snopt_options 'wantsol=8 outlev=2';
-option gurobi_options 'outlev=1 mipgap 0.01 bestbound 1 logfile "./logfile.txt"'; 
+# Quitar bestbound 1 y añadir NodefileStart para usar disco en caso de faltar RAM
+option gurobi_options 'outlev=1 mipgap 0.01 logfile "./logfile.txt" NodefileStart=1.0 NodefileDir="."';
 
 param cli;
 param loc;
@@ -23,3 +20,4 @@ s.t.
 
 	capacity {j in 1..loc}: sum {i in 1..cli} dem[i]*y[i,j] <= ICap[j]*x[j];
 	
+	enlace {i in 1..cli, j in 1..loc}: y[i,j] <= x[j]; # Cliente i se asigna a loc j solo si loc j esta abierto
