@@ -25,12 +25,6 @@ def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None,
     ampl = None # Fuera del try para cerrarlo en 'finally'
     try:
         ampl = AMPL()
-        solver_options = f"mipgap={mipgap}"
-        if timelimit:
-            solver_options += f" timelim={timelimit}"
-        
-        ampl.setOption(f'{solver}_options', solver_options)
-
         # Cargar modelo y datos
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)
@@ -42,7 +36,7 @@ def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None,
         solve_result = ampl.solve_result
         print(f"[solver] Resultado: {solve_result}")
 
-        if "optimal" not in solve_result.lower():
+        if "optimal" not in solve_result.lower() and "solved" not in solve_result.lower():
             print("[Solver] No se encontró una solución óptima.")
             return None, None, None
         
@@ -91,8 +85,7 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
     ampl = None
     try:
         ampl = AMPL()
-        ampl.setOption('solver', solver)
-        ampl.setOption(f'{solver}_options', 'timelim=60') 
+        ampl.setOption('solver', solver) 
 
         # Cargar modelo y datos
         ampl.read(mod_file_path)
@@ -132,7 +125,7 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
 
         solve_result = ampl.solve_result
 
-        if "optimal" in solve_result.lower():
+        if "optimal" in solve_result.lower() or "solved" in solve_result.lower():
             total_cost = ampl.getObjective('Total_Cost').value()
             return total_cost
         else:
