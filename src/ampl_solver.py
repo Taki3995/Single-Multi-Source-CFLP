@@ -11,7 +11,7 @@ from amplpy import AMPL, Environment, DataFrame
 os.environ["PATH"] += os.pathsep + r"C:\gurobi1003\win64\bin"
 # ------------------------------------------------------------------------
 
-def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None, mipgap=0):
+def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit=None, mipgap=0):
     """
     Resuelve el problema CFLP completo (MIP) para encontrar el óptimo verdadero.
     Retorna (total_cost, open_facilities_indices, assignments), 
@@ -55,14 +55,14 @@ def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None,
         
         # 2. Filtrar 'y' (Asignaciones)
         assignments = []
-        if assignment_var.is_binary(): # Comprobar la variable de asignación
-            # Modo Single-Source: guardar (cliente, centro)
-            print("[Solver] Detectado modo Single-Source (variable 'y' es binaria).")
+        if mode == "SS":
+            print("[Solver] Procesando en modo Single-Source (SS).")
             assignments = [(int(i), int(j)) for (i, j), val in assignment_vals.items() if val > 0.9]
-        else:
-            # Modo Multi-Source: guardar (cliente, centro, fraccion_demanda)
-            print("[Solver] Detectado modo Multi-Source (variable 'y' es continua).")
+        elif mode == "MS":
+            print("[Solver] Procesando en modo Multi-Source (MS).")
             assignments = [(int(i), int(j), val) for (i, j), val in assignment_vals.items() if val > 0.0001]
+        else:
+            print(f"[Solver] Advertencia: Modo '{mode}' no reconocido para procesar asignaciones.")
 
         print(f"[Solver] Óptimo encontrado. Costo = {total_cost:,.2f}")
         return total_cost, open_facilities, assignments

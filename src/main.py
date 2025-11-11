@@ -71,7 +71,9 @@ def main(args):
     if args.action == 'optimal':
         print("\n--- Resolviendo Óptimo (MIP) ---")
 
-        optimal_cost, opt_facilities, opt_assignments = ampl_solver.solve_optimal(dat_file, mod_file, solver="gurobi", timelimit=None, mipgap=0)
+        optimal_cost, opt_facilities, opt_assignments = ampl_solver.solve_optimal(
+            dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0
+        )
         
         if optimal_cost is None:
             optimal_cost = "N/A"
