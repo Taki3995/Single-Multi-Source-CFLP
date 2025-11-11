@@ -3,6 +3,7 @@ import argparse
 from data_parser import parse_and_convert
 import ampl_solver
 import utils
+import heuristic
 
 # Definir rutas base
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

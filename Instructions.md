@@ -12,7 +12,7 @@
 
 **parsear todo (solo ejecutar una vez):**
 
-- python src/main.py -a parse
+python src/main.py -a parse
 
 **Resolver el optimo segun instancia**
 

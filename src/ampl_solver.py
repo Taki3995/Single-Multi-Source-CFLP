@@ -39,7 +39,7 @@ def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None,
         print("[Solver] Resolviendo...")
         ampl.solve()
 
-        solve_result = ampl.getSolverResult()
+        solve_result = ampl.get_solve_result()
         print(f"[solver] Resultado: {solve_result}")
 
         if "optimal" not in solve_result.lower():
@@ -95,21 +95,19 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
     try:
         ampl = AMPL()
         ampl.setOption('solver', solver)
-        # Opciones más rápidas, ya que no es un MIP complejo
         ampl.setOption(f'{solver}_options', 'timelim=60') 
 
         # Cargar modelo y datos
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)
 
-        # --- FIJAR LAS VARIABLES (El paso clave) ---
+        # --- FIJAR LAS VARIABLES ---
         y = ampl.getVariable('y')
         
-        # 1. Obtener la lista de TODAS las localizaciones (ej. 1...5000)
+        # 1. Obtener la lista de todas las localizaciones
         all_locations_indices = ampl.getSet('LOCATIONS').getValues().toList()
         
         # 2. Crear un DataFrame para fijar las variables
-        # Esto es MUCHO más rápido que iterar y fijar una por una
         df = DataFrame('LOCATIONS')
         
         # Convertir la lista de la heurística en un Set para búsquedas rápidas
@@ -128,17 +126,16 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
         y.setValues(df, 'y_val')
         # --- Fin del fijado ---
 
-        # Resolver el subproblema (que ahora es solo de asignación)
+        # Resolver el subproblema (asignación)
         ampl.solve()
 
-        solve_result = ampl.getSolveResult()
+        solve_result = ampl.get_solve_result()
 
         if "optimal" in solve_result.lower():
             total_cost = ampl.getObjective('Total_Cost').value()
             return total_cost
         else:
-            # Si la combinación de centros no es factible (ej. no cumple demanda)
-            # devolvemos un costo infinito para que la heurística lo descarte.
+            # Si la combinación de centros no es factible devolvuelve un costo infinito para que la heurística lo descarte.
             return float('inf')
 
     except Exception as e:
