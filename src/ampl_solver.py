@@ -39,7 +39,7 @@ def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None,
         print("[Solver] Resolviendo...")
         ampl.solve()
 
-        solve_result = ampl.get_solve_result()
+        solve_result = ampl.solve_result
         print(f"[solver] Resultado: {solve_result}")
 
         if "optimal" not in solve_result.lower():
@@ -50,25 +50,25 @@ def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None,
         total_cost = ampl.getObjective('Total_Cost').value()
         
         # Obtener variables de decisión
-        y_var = ampl.getVariable('y')
-        x_var = ampl.getVariable('x')
+        facility_var = ampl.getVariable('x') # 'x' son las localizaciones
+        assignment_var = ampl.getVariable('y') # 'y' son las asignaciones
         
-        y_vals = y_var.getValues().toDict()
-        x_vals = x_var.getValues().toDict()
+        facility_vals = facility_var.getValues().toDict()
+        assignment_vals = assignment_var.getValues().toDict()
 
-        # 1. Filtrar 'y' (Centros abiertos)
-        open_facilities = [int(j) for j, val in y_vals.items() if val > 0.9]
+        # 1. Filtrar 'x' (Centros abiertos)
+        open_facilities = [int(j) for j, val in facility_vals.items() if val > 0.9]
         
-        # 2. Filtrar 'x' (Asignaciones)
+        # 2. Filtrar 'y' (Asignaciones)
         assignments = []
-        if x_var.isBinary():
+        if assignment_var.isBinary(): # Comprobar la variable de asignación
             # Modo Single-Source: guardar (cliente, centro)
-            print("[Solver] Detectado modo Single-Source (x es binaria).")
-            assignments = [(int(i), int(j)) for (i, j), val in x_vals.items() if val > 0.9]
+            print("[Solver] Detectado modo Single-Source (variable 'y' es binaria).")
+            assignments = [(int(i), int(j)) for (i, j), val in assignment_vals.items() if val > 0.9]
         else:
             # Modo Multi-Source: guardar (cliente, centro, fraccion_demanda)
-            print("[Solver] Detectado modo Multi-Source (x es continua).")
-            assignments = [(int(i), int(j), val) for (i, j), val in x_vals.items() if val > 0.0001]
+            print("[Solver] Detectado modo Multi-Source (variable 'y' es continua).")
+            assignments = [(int(i), int(j), val) for (i, j), val in assignment_vals.items() if val > 0.0001]
 
         print(f"[Solver] Óptimo encontrado. Costo = {total_cost:,.2f}")
         return total_cost, open_facilities, assignments
@@ -86,9 +86,6 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
     Resuelve solo el problema de asignación, dado un conjunto fijo
     de localizaciones abiertas proporcionadas por la heurística.
     Devuelve: costo_total, o en su defecto float('inf') si la solución no es factible.
-
-    No se imprime nada en esta funcion, ya que se llama muchas veces en un 
-    bucle, e imprimir ralentizaría el proceso
     """
 
     ampl = None
@@ -101,12 +98,17 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)
 
-        # --- FIJAR LAS VARIABLES ---
-        y = ampl.getVariable('y')
+        facility_var = ampl.getVariable('x')
         
         # 1. Obtener la lista de todas las localizaciones
-        all_locations_indices = ampl.getSet('LOCATIONS').getValues().toList()
-        
+        try:
+            all_locations_indices = ampl.getSet('LOCATIONS').getValues().toList()
+        except:
+            # Si el .dat no define el set 'LOCATIONS', lo leemos del param 'loc'
+            print("[Solver] Advertencia: Set 'LOCATIONS' no encontrado. Usando 1..loc.")
+            loc_count = int(ampl.getParameter('loc').value())
+            all_locations_indices = list(range(1, loc_count + 1))
+
         # 2. Crear un DataFrame para fijar las variables
         df = DataFrame('LOCATIONS')
         
@@ -116,20 +118,19 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
         rows = []
         for j in all_locations_indices:
             if j in open_set:
-                rows.append((j, 1.0)) # Fija y[j] = 1
+                rows.append((j, 1.0))
             else:
-                rows.append((j, 0.0)) # Fija y[j] = 0
+                rows.append((j, 0.0))
         
-        df.setValues(rows, ['LOCATIONS', 'y_val'])
+        df.setValues(rows, ['LOCATIONS', 'x_val'])
         
-        # 3. Asignar los valores del DataFrame a la variable 'y'
-        y.setValues(df, 'y_val')
-        # --- Fin del fijado ---
+        # 3. Asignar los valores del DataFrame a la variable 'x'
+        facility_var.setValues(df, 'x_val')
 
         # Resolver el subproblema (asignación)
         ampl.solve()
 
-        solve_result = ampl.get_solve_result()
+        solve_result = ampl.solve_result
 
         if "optimal" in solve_result.lower():
             total_cost = ampl.getObjective('Total_Cost').value()
