@@ -6,7 +6,7 @@ import os
 from amplpy import AMPL, Environment, DataFrame
 
 # ----- Configuración del solver -----
-# Aseegúrate de que Gurobi (o el solver utilizado) esté en el PATH.
+# Asegura que Gurobi (o el solver utilizado) esté en el PATH.
 # Si no lo está, descomenta la siguiente linea para añadirlo manualmente
 os.environ["PATH"] += os.pathsep + r"C:\gurobi1003\win64\bin"
 # ------------------------------------------------------------------------
@@ -18,19 +18,24 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
     o en su defecto (None, None, None) si es que fallara.
     """
 
-    print(f"\n[solver] Iniciando búsqueda de óptimo verdadero... ")
+    print(f"\n[Solver] Iniciando búsqueda de óptimo verdadero... ")
     print(f"Modelo: {mod_file_path}")
     print(f"Datos: {dat_file_path}")
 
     ampl = None # Fuera del try para cerrarlo en 'finally'
     try:
         ampl = AMPL()
+        if solver == "gurobi":
+            ampl.setOption( 'gurobi_options',  
+                            'outlev=1 mipgap 0.01 ' + 
+                            'logfile "./logfile.txt" ' + 
+                            'NodefileStart=1.0 NodefileDir="."')
         # Cargar modelo y datos
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)
 
         # Resolver el problema
-        print("[Solver] Resolviendo...")
+        print("[Solver] Resolviendo (esto puede tardar mucho dependiendo de la instancia)...")
         ampl.solve()
 
         solve_result = ampl.solve_result
@@ -47,20 +52,26 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
         facility_var = ampl.getVariable('x') # 'x' son las localizaciones
         assignment_var = ampl.getVariable('y') # 'y' son las asignaciones
         
-        facility_vals = facility_var.getValues().toDict()
-        assignment_vals = assignment_var.getValues().toDict()
-
         # 1. Filtrar 'x' (Centros abiertos)
+        facility_vals = facility_var.getValues().toDict()
         open_facilities = [int(j) for j, val in facility_vals.items() if val > 0.9]
+        
+        # --- OPTIMIZACIÓN DE MEMORIA --- 
+        print("[Solver] Obteniendo DataFrame de asignaciones...")
+        assignment_df = assignment_var.getValues().toPandas() # toPandas() para manejar datos dispersos eficientemente
+        print(f"[Solver] Filtrando {len(assignment_df)} asignaciones (y > 0.9)...")
+        assignment_df_filtered = assignment_df[assignment_df.iloc[:, 0] > 0.9] # DataFrame con MultiIndex (i, j) y una columna 'y'
+        print(f"[Solver] Asignaciones filtradas: {len(assignment_df_filtered)}")
         
         # 2. Filtrar 'y' (Asignaciones)
         assignments = []
         if mode == "SS":
             print("[Solver] Procesando en modo Single-Source (SS).")
-            assignments = [(int(i), int(j)) for (i, j), val in assignment_vals.items() if val > 0.9]
+            assignments = [(int(i), int(j)) for (i, j) in assignment_df_filtered.index] # (i, j) es el índice del dataframe
+        
         elif mode == "MS":
             print("[Solver] Procesando en modo Multi-Source (MS).")
-            assignments = [(int(i), int(j), val) for (i, j), val in assignment_vals.items() if val > 0.0001]
+            assignments = [(int(i), int(j), val) for (i, j), val in assignment_df_filtered.iloc[:, 0].to_dict().items()]
         else:
             print(f"[Solver] Advertencia: Modo '{mode}' no reconocido para procesar asignaciones.")
 
@@ -86,7 +97,8 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
     try:
         ampl = AMPL()
         ampl.setOption('solver', solver) 
-
+        if solver == "gurobi":
+            ampl.setOption('gurobi_options', 'outlev=0')
         # Cargar modelo y datos
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)

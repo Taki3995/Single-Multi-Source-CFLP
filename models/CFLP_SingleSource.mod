@@ -1,6 +1,4 @@
-option solver gurobi;
-# Quitar bestbound 1 y añadir NodefileStart para usar disco en caso de faltar RAM
-option gurobi_options 'outlev=1 mipgap 0.01 logfile "./logfile.txt" NodefileStart=1.0 NodefileDir="."';
+# Opciones configuradas desde python
 
 param cli;
 param loc;
