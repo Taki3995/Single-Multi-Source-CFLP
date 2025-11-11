@@ -12,8 +12,8 @@ param FC{1 .. loc};
 param dem{1 .. cli};
 param TC{1 .. cli, 1 .. loc};
 
-var x {1 .. loc} integer >=0 <=1;
-var y {1 .. cli, 1 .. loc} integer >=0 <=1;
+var x {1 .. loc} binary;
+var y {1 .. cli, 1 .. loc} binary;
 
 minimize Total_Cost: ((sum {j in 1..loc} x[j] * FC[j])) + ((sum {j in 1..loc} (sum {i in 1..cli} y[i,j] * TC[i,j]))) ;
 

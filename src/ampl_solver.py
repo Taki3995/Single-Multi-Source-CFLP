@@ -55,7 +55,7 @@ def solve_optimal(dat_file_path, mod_file_path, solver="gurobi", timelimit=None,
         
         # 2. Filtrar 'y' (Asignaciones)
         assignments = []
-        if assignment_var.isBinary(): # Comprobar la variable de asignación
+        if assignment_var.is_binary(): # Comprobar la variable de asignación
             # Modo Single-Source: guardar (cliente, centro)
             print("[Solver] Detectado modo Single-Source (variable 'y' es binaria).")
             assignments = [(int(i), int(j)) for (i, j), val in assignment_vals.items() if val > 0.9]
