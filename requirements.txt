@@ -1,1 +1,6 @@
+os
+pandas
+sys
+amplpy
+argparse
 openpyxl
