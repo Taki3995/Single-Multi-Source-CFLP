@@ -26,6 +26,7 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
     try:
         ampl = AMPL()
         if solver == "gurobi":
+            ampl.setOption('solver', solver)
             ampl.setOption( 'gurobi_options',  
                             'outlev=1 mipgap 0.01 ' + 
                             'logfile "./logfile.txt" ' + 
