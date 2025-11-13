@@ -147,14 +147,14 @@ git clone ...
 ```bash
 cd CFLP_PROYECTO
 ```
-3. Crear y activar el entorno virtual
+2. Crear y activar el entorno virtual
 ```bash
 python -m venv .venv
 ```
 ```bash
 source .venv/bin/activate  # (o .venv\Scripts\activate en Windows)
 ```
-5. Instalar dependencias
+3. Instalar dependencias
 ```bash
 pip install -r requirements.txt
 ```
