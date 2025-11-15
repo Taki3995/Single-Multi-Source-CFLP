@@ -1,4 +1,4 @@
-"""   
+"""   
 Funciones de ayuda
 """
 
@@ -18,21 +18,21 @@ def save_solution_to_file(sol_dir, instance_name, mode, cost, open_facilities, a
             f.write(f"Modo: {mode}\n")
             f.write(f"Costo_Total_Heuristica: {cost}\n\n")
 
-            f.write("Centros_Abiertos (y):\n")
+            f.write("Centros_Abiertos (x):\n")
             f.write(str(open_facilities))
             f.write("\n\n")
-
-            f.write("Asignaciones (x):\n")
+            f.write("Asignaciones (y):\n")
+            
             # Para SS (cliente, centro)
             if all(isinstance(a, tuple) and len(a) == 2 for a in assignments):
                 # Cliente C es atendido por Centro J
                 for cli, loc in assignments:
-                    f.write(f"  Cliente {cli} -> Centro {loc}\n")
+                    f.write(f"  Cliente {cli} -> Centro {loc}\n")
             
             # Para MS (cliente, centro, fraccion)
             elif all(isinstance(a, tuple) and len(a) == 3 for a in assignments):
                 for cli, loc, val in assignments:
-                    f.write(f"  Cliente {cli} -> Centro {loc} (Valor: {val})\n")
+                    f.write(f"  Cliente {cli} -> Centro {loc} (Valor: {val})\n")
             else:
                 f.write(str(assignments))
 
