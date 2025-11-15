@@ -1,197 +1,187 @@
 """
-Implementa la logica de la heurística a eleccion
-En este caso, se implementará Tabu Search
+Implementación de la heurística Búsqueda Tabú (Tabu Search)
+La heurística se encarga de buscar el "vector de centros abiertos" (solución x)
+y utiliza AMPL para evaluar el costo de asignación (solución y) de ese vector.
 """
 
-import os
 import random
-from amplpy import AMPL
-import ampl_solver # Importamos nuestro "motor"
-from collections import deque # Usaremos una 'deque' para la lista tabú
+from collections import deque
+import ampl_solver
+import time
 
-# --- Parámetros de la Heurística de Búsqueda Tabú ---
+def get_instance_dims(dat_file_path):
+    """
+    Leer n_locations y n_clients del .dat
+    """
+    loc = 0
+    cli = 0
+    try:
+        with open(dat_file_path, 'r') as f:
+            for line in f:
+                if line.strip().startswith("param loc :="):
+                    loc = int(line.split(":=")[1].strip().replace(";", ""))
+                if line.strip().startswith("param cli :="):
+                    cli = int(line.split(":=")[1].strip().replace(";", ""))
+                if loc > 0 and cli > 0:
+                    break
+        return loc, cli
+    except Exception as e:
+        print(f"[Heuristic] Error leyendo dimensiones del .dat: {e}")
+        return 0, 0
 
-# Cuántos centros abrir en la solución inicial.
-NUM_FACILITIES_TO_OPEN_INITIAL = 50 
 
-# Tamaño de la "memoria": cuántas iteraciones un "movimiento"
-# permanece prohibido (tabú). Un buen punto de partida es 7.
-TABU_TENURE = 7 
-
-# Cuántos vecinos generar y evaluar en CADA iteración.
-# Un valor más grande da mejores decisiones, pero es más lento.
-NEIGHBORHOOD_SIZE = 20
-
-
-def get_initial_solution(all_locations, num_to_open):
+def generate_initial_solution(n_locations, n_clients):
     """
     Genera una solución inicial aleatoria.
-    (Esta función no cambia)
+    Abre un número 'k' aleatorio de centros.
+    Retorna un set de índices (1-based) de centros abiertos.
     """
-    print(f"[Heuristic] Generando solución inicial con {num_to_open} centros.")
-    try:
-        k = min(num_to_open, len(all_locations))
-        initial_solution = random.sample(all_locations, k)
-        return initial_solution
-    except Exception as e:
-        print(f"[Heuristic] Error al crear solución inicial: {e}")
-        return []
+    # k = Número de centros a abrir
+    k = max(5, int(n_locations * 0.2)) 
+    
+    # Genera una lista de todos los índices posibles (1 a n_locations)
+    all_indices = list(range(1, n_locations + 1))
+    
+    # Elige k índices al azar
+    open_indices = set(random.sample(all_indices, k))
+    
+    print(f"[Heuristic] Solución inicial generada con {k} centros abiertos.")
+    return open_indices
 
-def get_neighborhood(current_open_list, all_locations_list, n_size):
+def get_neighbors(current_open_set, n_locations, move_type="1-1-swap"):
     """
-    Genera un "vecindario" de N_SIZE soluciones vecinas.
-    Cada vecino se crea con un intercambio (SWAP).
+    Generador de vecinos.
+    Un vecino se crea por un "movimiento".
     
-    Retorna: una lista de tuplas: [(vecino_1, movimiento_1), (vecino_2, movimiento_2), ...]
-    donde 'vecino' es la lista de centros y 'movimiento' es (cerrado, abierto).
+    Movimiento "1-1-swap": Cierra un centro abierto y abre uno cerrado.
+    Retorna: (set_vecino, movimiento)
+    El 'movimiento' es lo que se guarda en la lista tabú.
     """
     
-    neighborhood = []
+    # Índices de centros cerrados
+    closed_indices = set(range(1, n_locations + 1)) - current_open_set
     
-    open_set = set(current_open_list)
-    all_set = set(all_locations_list)
-    closed_list = list(all_set - open_set)
-    open_list = list(open_set) # Usar la lista para random.choice
-    
-    if not closed_list or not open_list:
-        return [] # No se pueden hacer intercambios
-
-    for _ in range(n_size):
-        try:
-            # 1. Elegir uno para cerrar
-            to_close = random.choice(open_list)
+    # Generar todos los swaps 1-1
+    for j_open in current_open_set:
+        for j_closed in closed_indices: # Por cada j_open que se cierra, se abre un j_closed
             
-            # 2. Elegir uno para abrir
-            to_open = random.choice(closed_list)
-
-            # 3. Crear la nueva solución vecina
-            neighbor_set = (open_set - {to_close}) | {to_open}
+            # 1. Crear el set vecino
+            neighbor_set = current_open_set.copy()
+            neighbor_set.remove(j_open)
+            neighbor_set.add(j_closed)
             
-            # Guardar el vecino y el movimiento que lo generó
-            move = (to_close, to_open)
-            neighborhood.append( (list(neighbor_set), move) )
-        except IndexError:
-            # Pasa si closed_list o open_list se agotan (raro)
-            break
+            # 2. Definir el movimiento
+            move = (j_open, j_closed) 
             
-    return neighborhood
+            yield neighbor_set, move
 
 
-def run_tabu_search(dat_file, mod_file, iterations):
-    """
-    Función principal que ejecuta la Búsqueda Tabú Híbrida.
-    """
-    print(f"[Heuristic] Iniciando Búsqueda Tabú Híbrida...")
-    
-    # --- 1. Obtener datos de la instancia ---
-    try:
-        temp_ampl = AMPL()
-        temp_ampl.readData(dat_file)
-        ALL_LOCATIONS = temp_ampl.getSet('LOCATIONS').getValues().toList()
-        temp_ampl.close()
-        if not ALL_LOCATIONS:
-            raise Exception("No se pudieron leer las localizaciones del .dat")
-    except Exception as e:
-        print(f"[Heuristic] Error crítico al leer {dat_file}: {e}")
-        return None, None, None
+def run_tabu_search(dat_file, mod_file, max_iterations, tabu_tenure_percent=0.10):
+    start_time = time.time()
 
-    # --- 2. Solución Inicial ---
-    n_initial = min(NUM_FACILITIES_TO_OPEN_INITIAL, len(ALL_LOCATIONS))
-    current_solution = get_initial_solution(ALL_LOCATIONS, n_initial)
+    # Obtener dimensiones
+    n_locations, n_clients = get_instance_dims(dat_file)
+    if n_locations == 0:
+        return float('inf'), [], 0
+
+    # Definir el tamaño de la lista tabú
+    tabu_tenure = max(5, int(n_locations * tabu_tenure_percent))
     
-    # Evaluar la solución inicial
-    current_cost = ampl_solver.solve_assignment(dat_file, mod_file, current_solution)
+    print(f"\n[Heuristic] Iniciando Búsqueda Tabú...")
+    print(f"Instancia: {n_locations} loc x {n_clients} cli")
+    print(f"Iteraciones Máximas: {max_iterations}")
+    print(f"Tamaño Lista Tabú (Tenure): {tabu_tenure}")
+
+    # Inicialización
+    tabu_list = deque(maxlen=tabu_tenure) # Eficiencia FIFO
     
-    if current_cost == float('inf'):
-        print("[Heuristic] ¡Error! La solución inicial no es factible.")
-        return None, None, None
-        
-    # En Búsqueda Tabú, 'current' y 'best' son distintos.
-    # 'current' se mueve, 'best' solo guarda al mejor de todos.
-    best_solution = current_solution
+    # Solución Inicial
+    current_solution_set = generate_initial_solution(n_locations, n_clients)
+    
+    # Evaluación Inicial (Primera llamada a AMPL)
+    print("[Heuristic] Evaluando solución inicial con AMPL...")
+    current_cost = ampl_solver.solve_assignment(
+        dat_file, mod_file, list(current_solution_set)
+    )
+    
+    # Inicializar la mejor solución encontrada
+    best_solution_set = current_solution_set
     best_cost = current_cost
     
-    # La "memoria": una cola que guarda los últimos K movimientos.
-    # Usamos maxlen para que automáticamente olvide movimientos antiguos.
-    tabu_list = deque(maxlen=TABU_TENURE)
-    
-    print(f"[Heuristic] Iter 0 (Inicial): Costo = {best_cost:,.2f}")
+    print(f"[Heuristic] Costo Inicial: {best_cost:,.2f}")
 
-    # --- 3. Bucle de Búsqueda Tabú ---
-    for i in range(1, iterations + 1):
+    # Bucle Principal de Búsqueda Tabú
+    for i in range(max_iterations):
         
-        # a. Generar el vecindario
-        neighborhood = get_neighborhood(current_solution, ALL_LOCATIONS, NEIGHBORHOOD_SIZE)
-        if not neighborhood:
-            print("[Heuristic] No se pueden generar más vecinos. Deteniendo.")
-            break
-            
-        best_neighbor = None
+        best_neighbor_set = None
         best_neighbor_cost = float('inf')
         best_neighbor_move = None
+        
+        # Explorar Vecindario (1-1 Swaps)
+        # (Esto puede ser lento para N grande, se podría muestrear)
+        neighbors_evaluated = 0
+        for neighbor_set, move in get_neighbors(current_solution_set, n_locations):
+            
+            # Comprobar Lista Tabú y Criterio de Aspiración
+            
+            # 'move' = (j_que_cerre, j_que_abri)
+            # 'rev_move' = (j_que_abri, j_que_cerre)
+            # Verificamos si el índice que *cambió* está tabú.
+            # Movimiento simple: prohibir mover 'j_open' o 'j_closed'
+            is_tabu = (move[0] in tabu_list or move[1] in tabu_list)
+            
+            # Evaluación del vecino (Llamada a AMPL)
+            neighbor_cost = ampl_solver.solve_assignment(
+                dat_file, mod_file, list(neighbor_set)
+            )
+            neighbors_evaluated += 1
 
-        # b. Evaluar el vecindario
-        for neighbor, move in neighborhood:
-            
-            # Evaluar el costo del vecino
-            neighbor_cost = ampl_solver.solve_assignment(dat_file, mod_file, neighbor)
-
-            # --- Lógica Tabú y de Aspiración ---
-            
-            # El movimiento inverso (abrir, cerrar) también es tabú
-            reverse_move = (move[1], move[0]) 
-            
-            is_tabu = (move in tabu_list) or (reverse_move in tabu_list)
-            
             # Criterio de Aspiración:
-            # Si el movimiento es tabú, PERO produce una solución
-            # mejor que la MEJOR GLOBAL encontrada, ¡lo permitimos!
+            # Si el vecino es mejor que la *mejor solución global encontrada hasta ahora, lo aceptamos aunque sea Tabú.
             aspiration_met = (neighbor_cost < best_cost)
             
-            if (not is_tabu) or (aspiration_met):
-                # Este vecino es un candidato válido
+            if (not is_tabu) or aspiration_met:
+                # Si este vecino es el mejor *de este vecindario*
                 if neighbor_cost < best_neighbor_cost:
-                    best_neighbor = neighbor
+                    best_neighbor_set = neighbor_set
                     best_neighbor_cost = neighbor_cost
-                    best_neighbor_move = move
+                    # El movimiento es (j_que_cerre, j_que_abri)
+                    best_neighbor_move = move 
             
-            # (Si todos los vecinos son tabú, no nos moveremos)
-        
-        # c. Moverse al mejor vecino no-tabú
-        if best_neighbor is None:
-            print(f"[Heuristic] Iter {i}: Todos los vecinos eran tabú. No hay movimiento.")
-            continue
+            # (Opcional) Cortar la búsqueda de vecinos si es muy grande
+            # if neighbors_evaluated > 200: 
+            #     break
+
+        # Mover a la mejor solución vecina encontrada
+        if best_neighbor_set is None:
+            print(f"[Heuristic] Iter {i+1}/{max_iterations}. No se encontraron vecinos no-tabú. Terminando.")
+            break
             
-        # Realizar el movimiento (¡incluso si es peor que 'current_cost'!)
-        current_solution = best_neighbor
+        current_solution_set = best_neighbor_set
         current_cost = best_neighbor_cost
         
-        # Añadir el movimiento a la lista tabú
-        tabu_list.append(best_neighbor_move)
-        
-        # d. Actualizar la mejor solución global (si aplica)
+        # Actualizar Lista Tabú
+        # Añadimos los índices que acabamos de mover
+        tabu_list.append(best_neighbor_move[0]) # j que cerré
+        tabu_list.append(best_neighbor_move[1]) # j que abrí
+
+        # Actualizar la Mejor Solución Global (Best-So-Far)
         if current_cost < best_cost:
-            best_solution = current_solution
+            best_solution_set = current_solution_set
             best_cost = current_cost
-            print(f"[Heuristic] Iter {i}: Nuevo Mejor Costo = {best_cost:,.2f} (Mov: {best_neighbor_move})")
-        
-        # Imprimir de vez en cuando para saber que sigue vivo
-        elif i % 10 == 0:
-            print(f"[Heuristic] Iter {i}: Costo actual = {current_cost:,.2f} (Mejor: {best_cost:,.2f})")
+            print(f"*** [Heuristic] Iter {i+1}/{max_iterations}. Nuevo Óptimo Encontrado! Costo: {best_cost:,.2f} ***")
+        else:
+            if (i+1) % 10 == 0: # Imprimir progreso cada 10 iter.
+                print(f"[Heuristic] Iter {i+1}/{max_iterations}. Costo actual: {current_cost:,.2f} (Mejor: {best_cost:,.2f})")
 
     
-    print(f"[Heuristic] Búsqueda finalizada. Mejor costo encontrado: {best_cost:,.2f}")
-
-    # --- 4. Obtener Asignaciones Finales ---
-    print(f"[Heuristic] Obteniendo asignaciones para la mejor solución...")
+    end_time = time.time()
+    total_time = end_time - start_time
     
-    # Esta función ya la añadimos a ampl_solver.py en el paso anterior
-    best_assignments = ampl_solver.get_assignments_for_solution(
-        dat_file, mod_file, best_solution
-    )
-
-    if best_assignments is None:
-        print("[Heuristic] Error: No se pudieron obtener las asignaciones finales.")
-
-    # --- 5. Retornar todo ---
-    return best_cost, best_solution, best_assignments
+    print("\n[Heuristic] Búsqueda Tabú Finalizada.")
+    print(f"Mejor Costo Encontrado: {best_cost:,.2f}")
+    print(f"Total Centros Abiertos: {len(best_solution_set)}")
+    print(f"Tiempo Total: {total_time:.2f} segundos")
+    
+    # Retorna la mejor solución (índices 1-based) y su costo
+    return best_cost, list(best_solution_set), (i+1)

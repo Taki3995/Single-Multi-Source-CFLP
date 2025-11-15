@@ -89,23 +89,41 @@ def main(args):
 
     # --- Opción 3: Resolver Heurística ---
     elif args.action == 'heuristic':
-        print("\n--- Ejecutando Heurística Híbrida ---")
+        print("\n--- Ejecutando Heurística Híbrida (Búsqueda Tabú) ---")
         
-        # (Aquí llamar al próximo archivo que cree)
-        # heuristic_cost, best_facilities, best_assignments = heuristic.run_local_search(
-        #     dat_file, mod_file, args.iterations
-        # )
+        # --- INICIO DE BLOQUE MODIFICADO ---
         
-        # --- (DATOS DE PRUEBA HASTA QUE TENGAMOS heuristic.py) ---
-        print(" (Próximo paso: implementar heuristic.py) ")
-        heuristic_cost = 999999
-        best_facilities = [1, 2, 3]
-        best_assignments = [(1,1), (2,1), (3,2)]
-        # --- (FIN DATOS DE PRUEBA) ---
+        # 1. Ejecutar la Búsqueda Tabú
+        # La heurística solo nos devuelve el costo y los centros
+        heuristic_cost, best_facilities, iters_done = heuristic.run_tabu_search(
+            dat_file, 
+            mod_file, 
+            args.iterations
+        )
+        
+        best_assignments = []
+        if heuristic_cost == float('inf'):
+            print("La heurística no encontró una solución factible.")
+            heuristic_cost = "N/A"
+        else:
+            # 2. Obtener la solución de asignación final
+            # (Necesario para el reporte .txt)
+            # Usamos la nueva función que creamos en ampl_solver
+            _, best_assignments = ampl_solver.solve_assignment_and_get_solution(
+                dat_file,
+                mod_file,
+                best_facilities,
+                args.mode
+            )
+            if best_assignments is None:
+                print("Error: No se pudo obtener la asignación final para la mejor solución.")
+                best_assignments = []
+        
+        # --- FIN DE BLOQUE MODIFICADO ---
         
         os.makedirs(SOLUTIONS_DIR, exist_ok=True)
         
-        # Guardar el archivo de solución
+        # 3. Guardar el archivo de solución
         utils.save_solution_to_file(
             sol_dir=SOLUTIONS_DIR, 
             instance_name=args.instance, 
@@ -115,13 +133,13 @@ def main(args):
             assignments=best_assignments
         )
         
-        # Actualizar el Excel
+        # 4. Actualizar el Excel
         utils.update_report_excel(
             report_path=REPORT_PATH,
             instance_name=args.instance,
             mode=args.mode,
             heuristic_cost=heuristic_cost,
-            iterations=args.iterations
+            iterations=iters_done # Guardamos las iteraciones que realmente hizo
         )
         print("--- Acción 'heuristic' Finalizada ---")
 
