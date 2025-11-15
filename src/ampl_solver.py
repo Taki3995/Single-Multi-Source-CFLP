@@ -112,52 +112,43 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
         ampl = AMPL()
         ampl.setOption('solver', solver) 
         if solver == "gurobi":
-            ampl.setOption('gurobi_options', 'outlev=0') # outlev=0 para modo silencioso
-        # Cargar modelo y datos
+            ampl.setOption('gurobi_options', 'outlev=0')
+        
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)
 
-        facility_var = ampl.getVariable('x')
+        facility_var = ampl.get_variable('x')
         
         # 1. Obtener la lista de todas las localizaciones
         try:
-            all_locations_indices = ampl.getSet('LOCATIONS').getValues().toList()
-        except:
-            # Si el .dat no define el set 'LOCATIONS', lo leemos del param 'loc'
-            # print("[Solver-H] Advertencia: Set 'LOCATIONS' no encontrado. Usando 1..loc.")
-            loc_count = int(ampl.getParameter('loc').value())
+            # Usamos get_parameter() por compatibilidad
+            loc_count = int(ampl.get_parameter('loc').value())
             all_locations_indices = list(range(1, loc_count + 1))
+        except Exception as e:
+            print(f"[Solver-H] Error crítico: No se pudo leer 'param loc' del .dat. {e}")
+            return float('inf')
 
-        # 2. Crear un DataFrame para fijar las variables
-        df = DataFrame('LOCATIONS')
-        
-        # Convertir la lista de la heurística en un Set para búsquedas rápidas
+        # 2. Crear un diccionario
         open_set = set(open_facilities_indices) 
-        
-        rows = []
+        values_dict = {}
         for j in all_locations_indices:
             if j in open_set:
-                rows.append((j, 1.0))
+                values_dict[j] = 1.0
             else:
-                rows.append((j, 0.0))
+                values_dict[j] = 0.0
         
-        df.setValues(rows, ['LOCATIONS', 'x_val'])
-        
-        # 3. Asignar los valores del DataFrame a la variable 'x'
-        # Esto "fija" la variable x a los valores dados
-        facility_var.setValues(df, 'x_val')
+        # 3. Asignar los valores del diccionario a la variable 'x'
+        facility_var.set_values(values_dict)
 
         # Resolver el subproblema (asignación)
         ampl.solve()
 
-        solve_result = ampl.solve_result
+        solve_result = ampl.get_value('solve_result')
 
         if "optimal" in solve_result.lower() or "solved" in solve_result.lower():
-            total_cost = ampl.getObjective('Total_Cost').value()
+            total_cost = ampl.get_objective('Total_Cost').value()
             return total_cost
         else:
-            # Si la combinación de centros no es factible (ej. no cumple demanda)
-            # devolvemos un costo infinito para que la heurística lo descarte.
             return float('inf')
 
     except Exception as e:
@@ -165,7 +156,7 @@ def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solv
         return float('inf')
     finally:
         if ampl:
-            ampl.close() # Siempre cerrar
+            ampl.close()
 
 def solve_assignment_and_get_solution(dat_file_path, mod_file_path, open_facilities_indices, mode, solver="gurobi"):
     """
@@ -186,37 +177,41 @@ def solve_assignment_and_get_solution(dat_file_path, mod_file_path, open_facilit
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)
 
-        facility_var = ampl.getVariable('x')
-        assignment_var = ampl.getVariable('y')
+        facility_var = ampl.get_variable('x')
+        assignment_var = ampl.get_variable('y')
 
         # 1. Fijar las variables 'x'
         try:
-            loc_count = int(ampl.getParameter('loc').value())
+            loc_count = int(ampl.get_parameter('loc').value())
             all_locations_indices = list(range(1, loc_count + 1))
         except Exception as e:
             print(f"[Solver] Error obteniendo 'loc' count: {e}")
             return None, None
             
-        df = DataFrame('LOCATIONS')
-        open_set = set(open_facilities_indices) 
-        rows = []
+        # Crear un diccionario
+        open_set = set(open_facilities_indices)
+        values_dict = {}
         for j in all_locations_indices:
-            rows.append((j, 1.0 if j in open_set else 0.0))
-        df.setValues(rows, ['LOCATIONS', 'x_val'])
-        facility_var.setValues(df, 'x_val')
+            if j in open_set:
+                values_dict[j] = 1.0
+            else:
+                values_dict[j] = 0.0
+        
+        # Asignar los valores del diccionario a la variable 'x'
+        facility_var.set_values(values_dict)
 
         # 2. Resolver
         ampl.solve()
 
-        solve_result = ampl.solve_result
+        solve_result = ampl.get_value('solve_result')
         if "optimal" not in solve_result.lower() and "solved" not in solve_result.lower():
             print("[Solver] Error: La solución final de la heurística resultó ser infactible.")
             return None, None
 
         # 3. Extraer resultados (costo y asignaciones 'y')
-        total_cost = ampl.getObjective('Total_Cost').value()
+        total_cost = ampl.get_objective('Total_Cost').value()
         
-        assignment_df = assignment_var.getValues().toPandas()
+        assignment_df = assignment_var.get_values().to_pandas()
         
         filter_tolerance = 1e-6
         assignment_df_filtered = assignment_df[assignment_df.iloc[:, 0] > filter_tolerance]
