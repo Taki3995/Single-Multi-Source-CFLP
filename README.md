@@ -141,25 +141,33 @@ La entrega consiste en un único archivo .zip que debe contener:
 # instalacion: como preparar el entorno
 
 1. Clonar el repositorio
+```bash
 git clone ...
+```
+```bash
 cd CFLP_PROYECTO
-
+```
 2. Crear y activar el entorno virtual
+```bash
 python -m venv .venv
+```
+```bash
 source .venv/bin/activate  # (o .venv\Scripts\activate en Windows)
-
+```
 3. Instalar dependencias
+```bash
 pip install -r requirements.txt
-
+```
 
 Uso / Ejecución: El comando exacto para correr el programa.
 
 # Ejemplo de cómo ejecutar el main.py
+```bash
 python src/main.py --instance "2000x2000_1" --iterations 500 --mode "SS"
-
+```
 
 # Estructura de archivos
-
+```bash
 CFLP_PROYECTO/
 ├── .venv/                        # Entorno virtual de Python
 ├── data/
@@ -183,3 +191,4 @@ CFLP_PROYECTO/
 ├── requirements.txt              # Lista de librerías (amplpy, pandas)
 ├── Instructions.md               # Instrucciones para ejecutar trabajo
 └── report.xlsx                   # Reporte completo de soluciones encontradas para cada instancia
+```
