@@ -10,10 +10,10 @@ MODELS_DIR = os.path.join(BASE_DIR, 'models')
 # ---------------------------------
 
 # --- PARÁMETROS DE LA PRUEBA ---
-INSTANCE_NAME = "5000x5000_1"
-MODEL_MODE = "SS" # Prueba con Single-Source primero
-N_CENTROS_A_ABRIR = 1000
-N_TOTAL_LOCACIONES = 5000 # Asegúrate que esto coincida con la instancia
+INSTANCE_NAME = "2000x2000_1"
+MODEL_MODE = "MS"
+N_CENTROS_A_ABRIR = 100
+N_TOTAL_LOCACIONES = 2000 # Asegúrate que esto coincida con la instancia
 # ---------------------------------
 
 def run_test():

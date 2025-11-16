@@ -17,5 +17,3 @@ s.t.
 	allocation1 {i in 1..cli}:    	sum {j in 1..loc} y[i,j] = 1;
 
 	capacity {j in 1..loc}: sum {i in 1..cli} dem[i]*y[i,j] <= ICap[j]*x[j];
-	
-	# enlace {i in 1..cli, j in 1..loc}: y[i,j] <= x[j]; # Cliente i se asigna a loc j solo si loc j esta abierto
