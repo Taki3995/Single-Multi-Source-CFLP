@@ -71,8 +71,6 @@ def main(args):
     if args.action == 'optimal':
         print("\n--- Resolviendo Óptimo (MIP) ---")
 
-        # Llama a solve_optimal con mipgap=0 para el óptimo real
-        # 'timelimit' (si existe) se pasará desde argparse (no implementado, pero la función lo soporta)
         optimal_cost, opt_facilities, opt_assignments = ampl_solver.solve_optimal(
             dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0
         )
@@ -95,6 +93,7 @@ def main(args):
         
         print("[Main] Creando instancia persistente de AMPLWrapper (solo para leer datos)...")
         
+        # Opciones de Gurobi para la heurística (rápidas)
         gurobi_opts_heuristic = 'outlev=0 timelimit=1.0 mipgap=0.05' 
 
         try:

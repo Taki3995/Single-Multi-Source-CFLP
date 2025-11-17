@@ -7,7 +7,6 @@ import random
 from collections import deque
 import time
 import sys
-# import ampl_solver <- ELIMINADO (ya no se usa la función robusta)
 
 def generate_initial_solution(n_locations, total_demand, capacity_list):
     """

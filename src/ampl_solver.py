@@ -119,7 +119,8 @@ class AMPLWrapper:
         self.ampl = AMPL()
         self.ampl.setOption('solver', solver)
         if gurobi_opts is None:
-            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' # Tiempo máximo 10 segundos, mipgap de 5%
+            # Opciones por defecto si main.py no pasa nada (fallback)
+            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' 
         self.ampl.setOption('gurobi_options', gurobi_opts)
         
         print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
@@ -215,6 +216,7 @@ class AMPLWrapper:
         print("[Wrapper] Extrayendo asignación final...")
         try:
             # 2. re-resolver en la instancia persistente (1 sola vez)
+            # Esto es necesario para que .getValues() tenga los datos correctos
             open_set = set(open_facilities_indices)
             values_dict = {}
             for j in self.all_locations_indices:
