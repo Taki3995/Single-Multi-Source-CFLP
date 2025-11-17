@@ -6,6 +6,7 @@ para el problema CFLP.
 import random
 from collections import deque
 import time
+import sys
 
 def generate_initial_solution(n_locations, open_ratio=0.2):
     """
@@ -99,8 +100,14 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
         best_neighbor_set = None
         best_neighbor_cost = float('inf')
         best_neighbor_move = None
+
+        neighbors_evaluated = 0
+        # Imprime el inicio de la barra de progreso
+        print(f"[Heuristic] Iter {i+1}/{max_iterations}: [", end="")
+        sys.stdout.flush()
+        progress_bar_size = 40
         
-        # Explorar Vecindario MUESTRADO (Rápido)
+        # Explorar Vecindario muestrado (Rápido)
         for neighbor_set, move in get_neighbors_sampled(current_solution_set, n_locations, neighborhood_sample_size):
             
             # 'move' = (j_que_cerre, j_que_abri)
@@ -108,6 +115,12 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
             
             # Evaluación del vecino
             neighbor_cost = ampl_wrapper.solve_assignment_fixed_x(list(neighbor_set))
+
+            # Actualizar barra
+            neighbors_evaluated += 1
+            progress = int((neighbors_evaluated / neighborhood_sample_size) * progress_bar_size)
+            print(f"{"=" * progress}{"-" * (progress_bar_size - progress)}]", end='\r')
+            sys.stdout.flush()
 
             # Criterio de Aspiración:
             # Aceptamos si es mejor que la mejor solución global
@@ -118,7 +131,10 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
                     best_neighbor_set = neighbor_set
                     best_neighbor_cost = neighbor_cost
                     best_neighbor_move = move 
-            
+        # Limpiar barra
+        print(" " * (progress_bar_size + 30), end='\r') 
+        sys.stdout.flush()
+
         # Mover a la mejor solución vecina encontrada
         if best_neighbor_set is None:
             print(f"[Heuristic] Iter {i+1}/{max_iterations}. No se encontraron vecinos válidos. (Posible óptimo local)")
@@ -146,8 +162,8 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
             best_cost = current_cost
             print(f"*** [Heuristic] Iter {i+1}/{max_iterations}. Nuevo Óptimo Encontrado! Costo: {best_cost:,.2f} ***")
         else:
-            if (i+1) % 10 == 0: # Imprimir progreso cada 10 iter.
-                print(f"[Heuristic] Iter {i+1}/{max_iterations}. Costo actual: {current_cost:,.2f} (Mejor: {best_cost:,.2f})")
+            # Imprime el progreso al final de CADA iteración
+            print(f"[Heuristic] Iter {i+1}/{max_iterations}. Costo actual: {current_cost:,.2f} (Mejor: {best_cost:,.2f})")
 
     
     end_time = time.time()
