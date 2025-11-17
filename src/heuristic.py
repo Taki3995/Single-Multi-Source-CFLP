@@ -8,17 +8,55 @@ from collections import deque
 import time
 import sys
 
-def generate_initial_solution(n_locations, open_ratio=0.2):
+def generate_initial_solution(n_locations, total_demand, capacity_list):
     """
-    Genera una solución inicial aleatoria.
-    Abre un 'open_ratio' (20%) de centros.
-    Retorna un set de índices (1-based) de centros abiertos.
+    Genera una solución inicial aleatoria PERO FACTIBLE.
+    Abre centros (priorizando los de mayor capacidad, pero con
+    aleatoriedad) hasta que la capacidad total abierta cubra la demanda total.
     """
-    k = max(5, int(n_locations * open_ratio)) 
-    all_indices = list(range(1, n_locations + 1))
-    open_indices = set(random.sample(all_indices, k))
+    print(f"[Heuristic] Generando sol. inicial para Demanda Total: {total_demand:,.0f}")
     
-    print(f"[Heuristic] Solución inicial generada con {k} centros abiertos.")
+    open_indices = set()
+    current_total_capacity = 0.0
+    
+    # Copiamos la lista y la barajamos para añadir aleatoriedad
+    # Esto evita que siempre abra los mismos N centros más grandes.
+    shuffled_capacity_list = capacity_list.copy()
+    random.shuffle(shuffled_capacity_list)
+
+    all_indices = set(range(1, n_locations + 1))
+    opened_indices_from_list = set()
+
+    for capacity, j in shuffled_capacity_list:
+        if current_total_capacity < total_demand:
+            open_indices.add(j)
+            opened_indices_from_list.add(j)
+            current_total_capacity += capacity
+        else:
+            # Una vez cubierta la demanda, opcionalmente abrimos algunos
+            # pocos más para dar holgura.
+            if random.random() < 0.10:
+                open_indices.add(j)
+                opened_indices_from_list.add(j)
+                current_total_capacity += capacity
+
+    # Asegurar que se abran centros aunque no tengan capacidad (si es necesario)
+    if current_total_capacity < total_demand:
+        print("[Heuristic] Advertencia: Capacidad insuficiente. Abriendo más centros al azar.")
+        remaining_indices = list(all_indices - opened_indices_from_list)
+        random.shuffle(remaining_indices)
+        for j in remaining_indices:
+            open_indices.add(j)
+            # Suponemos que si no estaba en la lista, su capacidad era 0
+            if len(open_indices) > (n_locations * 0.8): # No abrir más del 80%
+                break
+
+
+    if current_total_capacity < total_demand:
+        print(f"[Heuristic] ADVERTENCIA: La suma de TODAS las capacidades ({current_total_capacity:,.0f}) podría ser menor que la demanda total.")
+        
+    print(f"[Heuristic] Solución inicial generada con {len(open_indices)} centros abiertos.")
+    print(f"[Heuristic] Capacidad Abierta: {current_total_capacity:,.0f}")
     return open_indices
 
 
@@ -62,8 +100,6 @@ def get_neighbors_sampled(current_open_set, n_locations, sample_size):
 def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neighborhood_sample_size):
     """
     Función principal de Búsqueda Tabú.
-    Recibe el 'ampl_wrapper' (que ya tiene los datos cargados)
-    y el 'n_locations' (detectado por el wrapper).
     """
     start_time = time.time()
     
@@ -79,23 +115,28 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neig
     
     print("[Heuristic] Buscando solución inicial factible...")
     
-    # Generar una solución inicial
-    current_solution_set = generate_initial_solution(n_locations, open_ratio=0.2)
+    # Obtener los datos para la solución inicial "inteligente"
+    total_demand = ampl_wrapper.get_total_demand()
+    capacity_list = ampl_wrapper.get_capacity_list()
+    
+    # Generar una solución inicial (factible)
+    current_solution_set = generate_initial_solution(n_locations, total_demand, capacity_list)
     current_cost = ampl_wrapper.solve_assignment_fixed_x(list(current_solution_set))
 
     # Bucle de reintento si la solución es infactible (costo 'inf')
-    max_retries = 10 # Intentar 10 veces
+    max_retries = 5 # Bajar reintentos
     retries = 0
     while current_cost == float('inf') and retries < max_retries:
         retries += 1
-        print(f"[Heuristic] Solución inicial infactible. Reintentando ({retries}/{max_retries}) abriendo más centros...")
-        # Aumentar el porcentaje de centros abiertos en cada reintento
-        open_ratio_retry = 0.2 + (retries * 0.05) 
-        current_solution_set = generate_initial_solution(n_locations, open_ratio=open_ratio_retry)
+        print(f"[Heuristic] Solución inicial infactible (quizás por mala suerte). Reintentando ({retries}/{max_retries})...")
+        
+        # Generar otra solución aleatoria (pero factible en capacidad)
+        current_solution_set = generate_initial_solution(n_locations, total_demand, capacity_list)
         current_cost = ampl_wrapper.solve_assignment_fixed_x(list(current_solution_set))
 
     if current_cost == float('inf'):
-        print("[Heuristic] ERROR: No se pudo encontrar una solución inicial factible.")
+        print("[Heuristic] ERROR: No se pudo encontrar una solución inicial factible después de 5 intentos.")
+        print("[Heuristic] Verifica que la suma de TODAS las capacidades en el .dat sea mayor a la demanda total.")
         return float('inf'), [], 0 # Salir
     
     # Inicializar la mejor solución encontrada
