@@ -127,7 +127,7 @@ class AMPLWrapper:
         self.all_locations_indices = list(range(1, self.n_locations + 1))
         
         self.fix_x_df = DataFrame('LOCATIONS')
-        self.fix_x_df.setColumn('LOCATIONS', self.all_locations_indices)
+        self.fix_x_df.set_column('LOCATIONS', self.all_locations_indices)
 
     def get_n_locations(self):
         """Devuelve el número de localizaciones para la heurística."""
@@ -142,7 +142,7 @@ class AMPLWrapper:
             
             # 1. Fijar variables 'x'
             x_values = [1.0 if j in open_set else 0.0 for j in self.all_locations_indices]
-            self.fix_x_df.setColumn('x_val', x_values)
+            self.fix_x_df.set_column('x_val', x_values)
             self.facility_var.setValues(self.fix_x_df, 'x_val')
             
             # 2. Resolver
