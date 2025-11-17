@@ -42,12 +42,16 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
         solve_result = ampl.solve_result
         print(f"[solver] Resultado: {solve_result}")
 
-        if "optimal" not in solve_result.lower() and "solved" not in solve_result.lower():
-            print("[Solver] No se encontró una solución óptima.")
+        try:
+            total_cost = ampl.getObjective('Total_Cost').value()
+        except Exception:
+            total_cost = None
+
+        if total_cost is None or ("optimal" not in solve_result.lower() and "solved" not in solve_result.lower()):
+            print("[Solver] No se encontró una solución óptima o factible.")
             return None, None, None
         
-        # --- Capturar Resultados ---
-        total_cost = ampl.getObjective('Total_Cost').value()
+        print(f"[Solver] Mejor costo encontrado: {total_cost:,.2f}")
         
         # Obtener variables de decisión
         facility_var = ampl.getVariable('x') # 'x' son las localizaciones
@@ -57,37 +61,37 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
         facility_vals = facility_var.getValues().toDict()
         open_facilities = [int(j) for j, val in facility_vals.items() if val > 0.9]
         
-        # --- OPTIMIZACIÓN DE MEMORIA --- 
         print("[Solver] Obteniendo DataFrame de asignaciones...")
-        assignment_df = assignment_var.getValues().toPandas() # toPandas() para manejar datos dispersos eficientemente
-        print(f"[Solver] Filtrando {len(assignment_df)} asignaciones...")
-        
-        # --- INICIO DE CORRECCIÓN DE BUG ---
-        # El filtro > 0.9 es incorrecto para Multi-Source (MS), 
-        # donde y puede ser 0.3, 0.5, etc.
-        # Usamos 1e-6 (una tolerancia pequeña) para capturar cualquier
-        # asignación positiva.
-        filter_tolerance = 1e-6
-        assignment_df_filtered = assignment_df[assignment_df.iloc[:, 0] > filter_tolerance]
-        # --- FIN DE CORRECCIÓN DE BUG ---
+        try:
+            assign_dict = assignment_var.getValues().toDict()
+            print(f"[Solver] Filtrando {len(assign_dict)} asignaciones...")
+        except Exception as e:
+            print(f"[Solver] ERROR: .toDict() falló: {e}.")
+            return total_cost, open_facilities, []
 
-        print(f"[Solver] Asignaciones filtradas: {len(assignment_df_filtered)}")
-        
         # 2. Filtrar 'y' (Asignaciones)
         assignments = []
         if mode == "SS":
             print("[Solver] Procesando en modo Single-Source (SS).")
-            # Filtramos > 0.9 por si acaso el solver da 0.9999
-            df_ss = assignment_df[assignment_df.iloc[:, 0] > 0.9] 
-            assignments = [(int(i), int(j)) for (i, j) in df_ss.index] # (i, j) es el índice del dataframe
+            threshold = 0.9 # Umbral para binario
+            for (i, j), val in assign_dict.items():
+                try:
+                    if float(val) > threshold:
+                        assignments.append((int(i), int(j)))
+                except (ValueError, TypeError): pass
         
         elif mode == "MS":
             print("[Solver] Procesando en modo Multi-Source (MS).")
-            # Aquí usamos el dataframe filtrado con 1e-6
-            assignments = [(int(i), int(j), val) for (i, j), val in assignment_df_filtered.iloc[:, 0].to_dict().items()]
+            threshold = 1e-6 # Umbral para fraccional (cualquier valor > 0)
+            for (i, j), val in assign_dict.items():
+                try:
+                    if float(val) > threshold:
+                        assignments.append((int(i), int(j), float(val)))
+                except (ValueError, TypeError): pass
         else:
             print(f"[Solver] Advertencia: Modo '{mode}' no reconocido para procesar asignaciones.")
 
+        print(f"[Solver] Asignaciones filtradas: {len(assignments)}")
         print(f"[Solver] Óptimo encontrado. Costo = {total_cost:,.2f}")
         return total_cost, open_facilities, assignments
 
@@ -97,138 +101,98 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
     finally:
         if ampl:
             ampl.close() # Asegurarse de cerrar AMPL y liberar la licencia
-
-
-def solve_assignment(dat_file_path, mod_file_path, open_facilities_indices, solver="gurobi"):
-    """
-    Resuelve solo el problema de asignación, dado un conjunto fijo
-    de localizaciones abiertas proporcionadas por la heurística.
-    Se usa dentro del bucle de la heurística.
-    Devuelve: costo_total, o en su defecto float('inf') si la solución no es factible.
-    """
-
-    ampl = None
-    try:
-        ampl = AMPL()
-        ampl.setOption('solver', solver) 
-        if solver == "gurobi":
-            ampl.setOption('gurobi_options', 'outlev=0')
+class AMPLWrapper:
+    def __init__(self, dat_file_path, mod_file_path, solver="gurobi", gurobi_opts=None):
+        """
+        Carga el modelo y los datos UNA SOLA VEZ al ser instanciado.
+        """
+        self.ampl = AMPL()
+        self.ampl.setOption('solver', solver)
+        if gurobi_opts is None:
+            gurobi_opts = 'outlev=0' # Opciones ligeras por defecto para la heurística
+        self.ampl.setOption('gurobi_options', gurobi_opts)
         
-        ampl.read(mod_file_path)
-        ampl.readData(dat_file_path)
-
-        facility_var = ampl.get_variable('x')
+        print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
+        self.ampl.read(mod_file_path)
+        self.ampl.readData(dat_file_path)
+        print("[Wrapper] Modelo y datos cargados.")
         
-        # 1. Obtener la lista de todas las localizaciones
+        # Guardar referencias a las entidades de AMPL
+        self.facility_var = self.ampl.getVariable('x')
+        self.assignment_var = self.ampl.getVariable('y')
+        self.total_cost_obj = self.ampl.getObjective('Total_Cost')
+        
+        # Guardar N_Locations (para la heurística) y crear un DF reutilizable
+        self.n_locations = int(self.ampl.getParameter('loc').value())
+        self.all_locations_indices = list(range(1, self.n_locations + 1))
+        
+        self.fix_x_df = DataFrame('LOCATIONS')
+        self.fix_x_df.setColumn('LOCATIONS', self.all_locations_indices)
+
+    def get_n_locations(self):
+        """Devuelve el número de localizaciones para la heurística."""
+        return self.n_locations
+
+    def solve_assignment_fixed_x(self, open_facilities_indices):
+        """
+        Funcion que la heurísticallama. Fija x y resuelve.
+        """
         try:
-            # Usamos get_parameter() por compatibilidad
-            loc_count = int(ampl.get_parameter('loc').value())
-            all_locations_indices = list(range(1, loc_count + 1))
-        except Exception as e:
-            print(f"[Solver-H] Error crítico: No se pudo leer 'param loc' del .dat. {e}")
-            return float('inf')
-
-        # 2. Crear un diccionario
-        open_set = set(open_facilities_indices) 
-        values_dict = {}
-        for j in all_locations_indices:
-            if j in open_set:
-                values_dict[j] = 1.0
-            else:
-                values_dict[j] = 0.0
-        
-        # 3. Asignar los valores del diccionario a la variable 'x'
-        facility_var.set_values(values_dict)
-
-        # Resolver el subproblema (asignación)
-        ampl.solve()
-
-        solve_result = ampl.get_value('solve_result')
-
-        if "optimal" in solve_result.lower() or "solved" in solve_result.lower():
-            total_cost = ampl.get_objective('Total_Cost').value()
-            return total_cost
-        else:
-            return float('inf')
-
-    except Exception as e:
-        print(f"[Solver] Error en 'solve_assignment': {e}")
-        return float('inf')
-    finally:
-        if ampl:
-            ampl.close()
-
-def solve_assignment_and_get_solution(dat_file_path, mod_file_path, open_facilities_indices, mode, solver="gurobi"):
-    """
-    Se llama al final de la búsqueda Tabú.
-    Recibe el mejor vector de centros que encontró la heurística para darsela a ampl.
-    Devuelve: El costo total. 
-    Para reportar.
-    """
-    print(f"\n[Solver] Obteniendo asignaciones finales para la mejor solución de la heurística...")
-
-    ampl = None
-    try:
-        ampl = AMPL()
-        ampl.setOption('solver', solver) 
-        if solver == "gurobi":
-            ampl.setOption('gurobi_options', 'outlev=0') 
-        
-        ampl.read(mod_file_path)
-        ampl.readData(dat_file_path)
-
-        facility_var = ampl.get_variable('x')
-        assignment_var = ampl.get_variable('y')
-
-        # 1. Fijar las variables 'x'
-        try:
-            loc_count = int(ampl.get_parameter('loc').value())
-            all_locations_indices = list(range(1, loc_count + 1))
-        except Exception as e:
-            print(f"[Solver] Error obteniendo 'loc' count: {e}")
-            return None, None
+            open_set = set(open_facilities_indices)
             
-        # Crear un diccionario
-        open_set = set(open_facilities_indices)
-        values_dict = {}
-        for j in all_locations_indices:
-            if j in open_set:
-                values_dict[j] = 1.0
+            # 1. Fijar variables 'x'
+            x_values = [1.0 if j in open_set else 0.0 for j in self.all_locations_indices]
+            self.fix_x_df.setColumn('x_val', x_values)
+            self.facility_var.setValues(self.fix_x_df, 'x_val')
+            
+            # 2. Resolver
+            self.ampl.solve()
+            
+            solve_result = self.ampl.getValue("solve_result")
+            
+            if solve_result and ("optimal" in str(solve_result).lower() or "solved" in str(solve_result).lower()):
+                return self.total_cost_obj.value()
             else:
-                values_dict[j] = 0.0
-        
-        # Asignar los valores del diccionario a la variable 'x'
-        facility_var.set_values(values_dict)
+                return float('inf') # Solución infactible
+        except Exception as e:
+            print(f"[Wrapper] Error en solve_assignment_fixed_x: {e}")
+            return float('inf')
 
-        # 2. Resolver
-        ampl.solve()
-
-        solve_result = ampl.get_value('solve_result')
-        if "optimal" not in solve_result.lower() and "solved" not in solve_result.lower():
-            print("[Solver] Error: La solución final de la heurística resultó ser infactible.")
-            return None, None
-
-        # 3. Extraer resultados (costo y asignaciones 'y')
-        total_cost = ampl.get_objective('Total_Cost').value()
+    def get_final_solution(self, open_facilities_indices, mode):
+        """
+        Se llama una vez al final de la heurística para obtener 
+        el costo Y la lista de asignaciones.
+        """
+        # Resuelve una última vez para asegurarse que 'y' está actualizada
+        final_cost = self.solve_assignment_fixed_x(open_facilities_indices)
+        if final_cost == float('inf'):
+            return final_cost, []
         
-        assignment_df = assignment_var.get_values().to_pandas()
-        
-        filter_tolerance = 1e-6
-        assignment_df_filtered = assignment_df[assignment_df.iloc[:, 0] > filter_tolerance]
+        print("[Wrapper] Extrayendo asignación final...")
+        try:
+            assign_dict = self.assignment_var.getValues().toDict()
+        except Exception as e:
+            print(f"[Wrapper] Error extrayendo asignación final: {e}")
+            return final_cost, []
         
         assignments = []
-        if mode == "SS":
-            df_ss = assignment_df[assignment_df.iloc[:, 0] > 0.9] 
-            assignments = [(int(i), int(j)) for (i, j) in df_ss.index]
-        elif mode == "MS":
-            assignments = [(int(i), int(j), val) for (i, j), val in assignment_df_filtered.iloc[:, 0].to_dict().items()]
+        threshold = 0.0001 if mode == "MS" else 0.9
+        for (i, j), val in assign_dict.items():
+            try:
+                if float(val) > threshold:
+                    if mode == "SS":
+                        assignments.append((int(i), int(j)))
+                    else: # MS
+                        assignments.append((int(i), int(j), float(val)))
+            except (ValueError, TypeError):
+                pass
         
-        print(f"[Solver] Asignaciones finales obtenidas. Costo: {total_cost:,.2f}")
-        return total_cost, assignments
+        return final_cost, assignments
 
-    except Exception as e:
-        print(f"[Solver] Error en 'solve_assignment_and_get_solution': {e}")
-        return None, None
-    finally:
-        if ampl:
-            ampl.close()
+    def close(self):
+        """Cierra la instancia de AMPL."""
+        try:
+            self.ampl.close()
+            print("[Wrapper] Instancia AMPL cerrada.")
+        except:
+            pass

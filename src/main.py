@@ -89,37 +89,52 @@ def main(args):
 
     # --- Opción 3: Resolver Heurística ---
     elif args.action == 'heuristic':
-        print("\n--- Ejecutando Heurística Híbrida (Búsqueda Tabú) ---")
+        print("\n--- Ejecutando Heurística Híbrida ---")
         
-        # --- INICIO DE BLOQUE MODIFICADO ---
+        print("[Main] Creando instancia persistente de AMPLWrapper...")
+        gurobi_opts_heuristic = 'outlev=0' # Opciones "silenciosas" para el loop
+        try:
+            # 1. CREA EL WRAPPER (CARGA DATOS 1 VEZ)
+            ampl_wrapper = ampl_solver.AMPLWrapper(
+                dat_file, 
+                mod_file, 
+                solver="gurobi", 
+                gurobi_opts=gurobi_opts_heuristic
+            )
+        except Exception as e:
+            print(f"[Main] Error fatal creando AMPLWrapper: {e}")
+            return
         
-        # 1. Ejecutar la Búsqueda Tabú
-        # La heurística solo nos devuelve el costo y los centros
+        print("[Main] Instancia cargada. Pasando a la heurística...")
+
+        # 2. LLAMA A LA HEURÍSTICA CON LOS ARGUMENTOS CORRECTOS
+        print(f"[Main] N_Locations detectadas: {ampl_wrapper.get_n_locations()}")
+        
+        # (Define un tamaño de muestra. 500 es un buen inicio para 50x50)
+        sample_size = 500
+        if "2000x2000" in args.instance:
+            sample_size = 1000 # Más grande para instancias más grandes
+        
         heuristic_cost, best_facilities, iters_done = heuristic.run_tabu_search(
-            dat_file, 
-            mod_file, 
-            args.iterations
+            ampl_wrapper=ampl_wrapper,  # Pasa el objeto wrapper
+            n_locations=ampl_wrapper.get_n_locations(), # Pasa el ENTERO
+            max_iterations=args.iterations,
+            tabu_tenure_percent=0.10, # 10% de tenencia
+            neighborhood_sample_size=sample_size
         )
         
-        best_assignments = []
+        print(f"[Main] Heurística finalizada. Mejor costo: {heuristic_cost}")
+
+        # 3. Obtener la asignación final para la mejor solución
         if heuristic_cost == float('inf'):
-            print("La heurística no encontró una solución factible.")
-            heuristic_cost = "N/A"
+            print("[Main] La heurística no encontró una solución factible.")
+            best_assignments = []
         else:
-            # 2. Obtener la solución de asignación final
-            # (Necesario para el reporte .txt)
-            # Usamos la nueva función que creamos en ampl_solver
-            _, best_assignments = ampl_solver.solve_assignment_and_get_solution(
-                dat_file,
-                mod_file,
-                best_facilities,
-                args.mode
-            )
-            if best_assignments is None:
-                print("Error: No se pudo obtener la asignación final para la mejor solución.")
-                best_assignments = []
+            print("[Main] Obteniendo asignación final para la mejor solución...")
+            _ , best_assignments = ampl_wrapper.get_final_solution(best_facilities, args.mode)
         
-        # --- FIN DE BLOQUE MODIFICADO ---
+        # 4. Cerrar la instancia AMPL
+        ampl_wrapper.close()
         
         os.makedirs(SOLUTIONS_DIR, exist_ok=True)
         

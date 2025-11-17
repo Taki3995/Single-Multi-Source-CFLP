@@ -9,6 +9,8 @@ python -m venv .venv
 - Windows:   
 ```bash
 Set-ExecutionPolicy RemoteSigned -Scope Process
+```
+```bash
 .venv\Scripts\activate
 ```
 - Linux/macOS: 
