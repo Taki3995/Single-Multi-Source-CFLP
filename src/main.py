@@ -93,7 +93,7 @@ def main(args):
     elif args.action == 'heuristic':
         print("\n--- Ejecutando Heurística Híbrida ---")
         
-        print("[Main] Creando instancia persistente de AMPLWrapper...")
+        print("[Main] Creando instancia persistente de AMPLWrapper (solo para leer datos)...")
         gurobi_opts_heuristic = 'outlev=0' 
         try:
             # 1. CREA EL WRAPPER (CARGA DATOS 1 VEZ)
@@ -113,7 +113,9 @@ def main(args):
         print(f"[Main] N_Locations detectadas: {ampl_wrapper.get_n_locations()}")
         
         heuristic_cost, best_facilities, iters_done = heuristic.run_tabu_search(
-            ampl_wrapper=ampl_wrapper,  # Pasa el objeto wrapper
+            ampl_wrapper=ampl_wrapper,  # Pasa el wrapper (solo para leer datos)
+            dat_file=dat_file,          # Pasa el path al .dat
+            mod_file=mod_file,          # Pasa el path al .mod
             n_locations=ampl_wrapper.get_n_locations(), # Pasa el entero
             max_iterations=args.iterations,
             tabu_tenure=args.tenure,

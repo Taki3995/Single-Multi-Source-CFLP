@@ -7,6 +7,7 @@ import random
 from collections import deque
 import time
 import sys
+import ampl_solver
 
 def generate_initial_solution(n_locations, total_demand, capacity_list):
     """
@@ -96,18 +97,18 @@ def get_neighbors_sampled(current_open_set, n_locations, sample_size):
             # Ocurre si las listas están vacías, simplemente paramos
             break
 
-
-def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neighborhood_sample_size):
+def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iterations, tabu_tenure, neighborhood_sample_size):
     """
     Función principal de Búsqueda Tabú.
     """
     start_time = time.time()
+    gurobi_opts = 'outlev=0'
     
     print(f"\n[Heuristic] Iniciando Búsqueda Tabú...")
     print(f"Instancia: {n_locations} loc")
     print(f"Iteraciones Máximas: {max_iterations}")
     print(f"Tamaño Lista Tabú (Tenure): {tabu_tenure}")
-    print(f"Tamaño Muestreo Vecindario: {neighborhood_sample_size}")
+    print(f"Tamaño Muestreo Vecinario: {neighborhood_sample_size}")
 
     # Inicialización
     tabu_list = deque(maxlen=(tabu_tenure * 2)) 
@@ -121,7 +122,9 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neig
     
     # Generar una solución inicial (factible)
     current_solution_set = generate_initial_solution(n_locations, total_demand, capacity_list)
-    current_cost = ampl_wrapper.solve_assignment_fixed_x(list(current_solution_set))
+    current_cost = ampl_solver.solve_assignment_robust(
+        dat_file, mod_file, list(current_solution_set), gurobi_opts
+    )
 
     # Bucle de reintento si la solución es infactible (costo 'inf')
     max_retries = 5 # Bajar reintentos
@@ -132,7 +135,10 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neig
         
         # Generar otra solución aleatoria (pero factible en capacidad)
         current_solution_set = generate_initial_solution(n_locations, total_demand, capacity_list)
-        current_cost = ampl_wrapper.solve_assignment_fixed_x(list(current_solution_set))
+        
+        current_cost = ampl_solver.solve_assignment_robust(
+            dat_file, mod_file, list(current_solution_set), gurobi_opts
+        )
 
     if current_cost == float('inf'):
         print("[Heuristic] ERROR: No se pudo encontrar una solución inicial factible después de 5 intentos.")
@@ -169,7 +175,9 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neig
             is_tabu = (move[0] in tabu_set or move[1] in tabu_set)
             
             # Evaluación del vecino
-            neighbor_cost = ampl_wrapper.solve_assignment_fixed_x(list(neighbor_set))
+            neighbor_cost = ampl_solver.solve_assignment_robust(
+                dat_file, mod_file, list(neighbor_set), gurobi_opts
+            )
 
             # Actualizar barra
             neighbors_evaluated += 1
@@ -187,7 +195,7 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neig
                     best_neighbor_cost = neighbor_cost
                     best_neighbor_move = move 
         # Limpiar barra
-        print(" " * (len(prefix) + progress_bar_size + 20), end='\r')
+        print(" " * (len(prefix) + progress_bar_size + 20), end='\r') 
         sys.stdout.flush()
 
         # Mover a la mejor solución vecina encontrada

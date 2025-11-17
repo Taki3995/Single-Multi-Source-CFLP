@@ -108,10 +108,58 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
     finally:
         if ampl:
             ampl.close() # Asegurarse de cerrar AMPL y liberar la licencia
+
+
+# --- INICIO DE LA CORRECCIÓN (NUEVA FUNCIÓN ROBUSTA) ---
+def solve_assignment_robust(dat_file_path, mod_file_path, open_facilities_indices, gurobi_opts):
+    """
+    Esta función es llamada miles de veces por la heurística.
+    Crea una instancia, resuelve y la destruye.
+    Es más lenta por llamada, pero NUNCA se colgará.
+    """
+    ampl = None
+    try:
+        ampl = AMPL()
+        ampl.setOption('solver', 'gurobi')
+        ampl.setOption('gurobi_options', gurobi_opts)
+        
+        # 1. Cargar modelo y datos
+        ampl.read(mod_file_path)
+        ampl.readData(dat_file_path)
+        
+        facility_var = ampl.getVariable('x')
+        total_cost_obj = ampl.getObjective('Total_Cost')
+        n_locations = int(ampl.getParameter('loc').value())
+        all_locations_indices = list(range(1, n_locations + 1))
+        
+        # 2. Fijar las variables 'x' (centros abiertos)
+        open_set = set(open_facilities_indices)
+        values_dict = {}
+        for j in all_locations_indices:
+            values_dict[j] = 1.0 if j in open_set else 0.0
+
+        facility_var.set_values(values_dict)
+        
+        # 3. Resolver
+        ampl.solve()
+        
+        solve_result = ampl.getValue("solve_result")
+        
+        if solve_result and ("optimal" in str(solve_result).lower() or "solved" in str(solve_result).lower()):
+            return total_cost_obj.value()
+        else:
+            return float('inf') # Solución infactible
+            
+    except Exception as e:
+        return float('inf')
+    finally:
+        if ampl:
+            ampl.close()
 class AMPLWrapper:
     def __init__(self, dat_file_path, mod_file_path, solver="gurobi", gurobi_opts=None):
         """
         Carga el modelo y los datos UNA SOLA VEZ al ser instanciado.
+        (Solo se usa para leer datos iniciales, no para resolver)
         """
         self.ampl = AMPL()
         self.ampl.setOption('solver', solver)
@@ -134,7 +182,7 @@ class AMPLWrapper:
         self.all_locations_indices = list(range(1, self.n_locations + 1))
 
         print("[Wrapper] Calculando demanda total y capacidades...")
-        # Obtener todos los parámetros necesarios
+        # (El resto de __init__ no cambia)
         try:
             self.demands = self.ampl.getParameter('dem').getValues().toDict()
             self.capacities = self.ampl.getParameter('ICap').getValues().toDict()
@@ -167,47 +215,36 @@ class AMPLWrapper:
         """Retorna la lista de (capacidad, indice) ordenada."""
         return self.capacity_list
 
-    def solve_assignment_fixed_x(self, open_facilities_indices):
-        """
-        Esta es la función que la heurística llamará miles de veces.
-        Es muy rápida porque solo fija 'x' y resuelve.
-        """
-        try:
-            open_set = set(open_facilities_indices)
-            values_dict = {}
-            for j in self.all_locations_indices:
-                if j in open_set:
-                    values_dict[j] = 1.0
-                else:
-                    values_dict[j] = 0.0
-
-            self.facility_var.set_values(values_dict)
-            
-            # 2. Resolver
-            self.ampl.solve()
-            
-            solve_result = self.ampl.getValue("solve_result")
-            
-            if solve_result and ("optimal" in str(solve_result).lower() or "solved" in str(solve_result).lower()):
-                return self.total_cost_obj.value()
-            else:
-                return float('inf') # Solución infactible
-        except Exception as e:
-            print(f"[Wrapper] Error en solve_assignment_fixed_x: {e}")
-            return float('inf')
-
     def get_final_solution(self, open_facilities_indices, mode):
         """
         Se llama una vez al final de la heurística para obtener 
         el costo Y la lista de asignaciones.
         """
-        # Resuelve una última vez para asegurarse que 'y' está actualizada
-        final_cost = self.solve_assignment_fixed_x(open_facilities_indices)
+        # Obtener el costo final usando el método robusto
+        try:
+            dat_file = self.ampl.getDataSources()[0]
+            mod_file = self.ampl.getModels()[0]
+        except Exception as e:
+            print(f"Error obteniendo paths de AMPL: {e}")
+            return float('inf'), []
+
+        final_cost = solve_assignment_robust(
+            dat_file, mod_file, open_facilities_indices, 'outlev=0 LogToConsole=0'
+        )
+
         if final_cost == float('inf'):
             return final_cost, []
         
         print("[Wrapper] Extrayendo asignación final...")
         try:
+            # 2. re-resolver en la instancia persistente (1 sola vez)
+            open_set = set(open_facilities_indices)
+            values_dict = {}
+            for j in self.all_locations_indices:
+                values_dict[j] = 1.0 if j in open_set else 0.0
+            self.facility_var.set_values(values_dict)
+            self.ampl.solve() # Esta llamada es segura (solo 1 vez)
+            
             assign_dict = self.assignment_var.getValues().toDict()
         except Exception as e:
             print(f"[Wrapper] Error extrayendo asignación final: {e}")
