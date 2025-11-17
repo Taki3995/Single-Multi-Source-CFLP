@@ -29,6 +29,46 @@ pip install -r requirements.txt
 python src/main.py -a parse
 ```
 
+Aquí tienes la sección lista para copiar y pegar en tu archivo `Instructions.md`.
+
+-----
+
+### Nota Importante: Error al Parsear Instancias (Git LFS)
+
+Este proyecto utiliza **Git LFS (Large File Storage)** para manejar los archivos de instancias `.txt` que son muy grandes.
+
+Si al ejecutar la acción `parse` (`python src/main.py -a parse`) obtienes un error similar a:
+
+> `invalid literal for int() with base 10: 'version'`
+
+Significa que tu sistema no ha descargado los archivos de datos reales, sino solo los "punteros" de Git LFS.
+
+#### Solución
+
+Para descargar los archivos de instancia correctos, sigue estos pasos en la terminal:
+
+1.  **Instala la extensión Git LFS:**
+
+      * Descárgala e instálala desde [git-lfs.github.com](https://git-lfs.github.com/).
+
+2.  **Activa LFS en tu sistema:** (Solo necesitas hacerlo una vez por PC)
+
+    ```bash
+    git lfs install
+    ```
+
+3.  **Descarga los archivos:**
+
+      * Navega hasta la carpeta del proyecto y ejecuta:
+
+    ```bash
+    git lfs pull
+    ```
+
+Después de ejecutar `git lfs pull`, los archivos `.txt` en la carpeta `data/instances_txt/` serán los correctos y el comando `parse` funcionará.
+
+-----
+
 ## Resolver el optimo segun instancia
 
 ### Para Single-Source (SS)
