@@ -51,7 +51,6 @@ def generate_initial_solution(n_locations, total_demand, capacity_list):
             if len(open_indices) > (n_locations * 0.8): # No abrir más del 80%
                 break
 
-
     if current_total_capacity < total_demand:
         print(f"[Heuristic] ADVERTENCIA: La suma de TODAS las capacidades ({current_total_capacity:,.0f}) podría ser menor que la demanda total.")
         
@@ -158,15 +157,6 @@ def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iteration
         best_neighbor_cost = float('inf')
         best_neighbor_move = None
 
-        neighbors_evaluated = 0
-
-        prefix = f"[Heuristic] Iter {i+1}/{max_iterations}: "
-        progress_bar_size = 40
-        
-        # Imprimir la barra inicial (vacía)
-        print(f"{prefix}[{'-' * progress_bar_size}]", end='\r')
-        sys.stdout.flush()
-
         # Explorar Vecindario muestreado
         for neighbor_set, move in get_neighbors_sampled(current_solution_set, n_locations, neighborhood_sample_size):
             
@@ -175,12 +165,6 @@ def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iteration
             
             # Evaluación del vecino (Llamada a la función persistente (rápida))
             neighbor_cost = ampl_wrapper.solve_assignment_persistent(list(neighbor_set))
-
-            # Actualizar barra
-            neighbors_evaluated += 1
-            progress = int((neighbors_evaluated / neighborhood_sample_size) * progress_bar_size)
-            print(f"{prefix}[{'=' * progress}{'-' * (progress_bar_size - progress)}]", end='\r')
-            sys.stdout.flush()
 
             # Criterio de Aspiración:
             # Aceptamos si es mejor que la mejor solución global
@@ -191,9 +175,6 @@ def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iteration
                     best_neighbor_set = neighbor_set
                     best_neighbor_cost = neighbor_cost
                     best_neighbor_move = move 
-        # Limpiar barra
-        print(" " * (len(prefix) + progress_bar_size + 20), end='\r') 
-        sys.stdout.flush()
 
         # Mover a la mejor solución vecina encontrada
         if best_neighbor_set is None:

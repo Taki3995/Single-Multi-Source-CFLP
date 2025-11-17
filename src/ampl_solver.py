@@ -119,8 +119,7 @@ class AMPLWrapper:
         self.ampl = AMPL()
         self.ampl.setOption('solver', solver)
         if gurobi_opts is None:
-            # Opciones por defecto si main.py no pasa nada (fallback)
-            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' 
+            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' # Opciones por defecto (fallback)
         self.ampl.setOption('gurobi_options', gurobi_opts)
         
         print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
@@ -170,35 +169,39 @@ class AMPLWrapper:
         """Retorna la lista de (capacidad, indice) ordenada."""
         return self.capacity_list
 
+
     def solve_assignment_persistent(self, open_facilities_indices):
         """
         Resuelve la asignación usando la instancia AMPL persistente.
         Esto es llamado miles de veces por la heurística.
         """
         try:
-            # 1. Crear el diccionario de valores para 'x'
-            # (Esto es rápido, todo en memoria)
+            # 1. Fijar las variables 'x' (centros abiertos)
             open_set = set(open_facilities_indices)
             values_dict = {}
             for j in self.all_locations_indices:
                 values_dict[j] = 1.0 if j in open_set else 0.0
 
-            # 2. Fijar las variables 'x' en la instancia AMPL
-            # (Esto usa la instancia que ya tiene el modelo y los datos)
             self.facility_var.set_values(values_dict)
 
-            # 3. Resolver (esto es rápido)
+            # 2. Resolver
             self.ampl.solve()
-
-            solve_result = self.ampl.getValue("solve_result")
+            try:
+                cost = self.total_cost_obj.value()
+                
+                # Si el costo es None (raro, pero puede pasar)
+                if cost is None:
+                    return float('inf')
+                    
+                return float(cost) # Devolver el costo, sea óptimo o no
             
-            status = str(solve_result).lower()
-            if solve_result and ("optimal" in status or "solved" in status or "feasible" in status):
-                return self.total_cost_obj.value()
-            else:
-                return float('inf') # Solución infactible
+            except Exception:
+                # Esta excepción se activa si NO hay solución (infactible)
+                # y .value() falla.
+                return float('inf')
 
         except Exception as e:
+            # Esta es una excepción de más alto nivel (ej. AMPL crashea)
             print(f"[Wrapper] ERROR en solve_assignment_persistent: {e}")
             return float('inf')
 
