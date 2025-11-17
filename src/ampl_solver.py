@@ -122,12 +122,9 @@ class AMPLWrapper:
         self.assignment_var = self.ampl.getVariable('y')
         self.total_cost_obj = self.ampl.getObjective('Total_Cost')
         
-        # Guardar N_Locations (para la heurística) y crear un DF reutilizable
+        # Guardar N_Locations (para la heurística)
         self.n_locations = int(self.ampl.getParameter('loc').value())
         self.all_locations_indices = list(range(1, self.n_locations + 1))
-        
-        self.fix_x_df = DataFrame('LOCATIONS')
-        self.fix_x_df.set_column('LOCATIONS', self.all_locations_indices)
 
     def get_n_locations(self):
         """Devuelve el número de localizaciones para la heurística."""
@@ -135,15 +132,19 @@ class AMPLWrapper:
 
     def solve_assignment_fixed_x(self, open_facilities_indices):
         """
-        Funcion que la heurísticallama. Fija x y resuelve.
+        Esta es la función que la heurística llamará miles de veces.
+        Es muy rápida porque solo fija 'x' y resuelve.
         """
         try:
             open_set = set(open_facilities_indices)
-            
-            # 1. Fijar variables 'x'
-            x_values = [1.0 if j in open_set else 0.0 for j in self.all_locations_indices]
-            self.fix_x_df.set_column('x_val', x_values)
-            self.facility_var.setValues(self.fix_x_df, 'x_val')
+            values_dict = {}
+            for j in self.all_locations_indices:
+                if j in open_set:
+                    values_dict[j] = 1.0
+                else:
+                    values_dict[j] = 0.0
+
+            self.facility_var.set_values(values_dict)
             
             # 2. Resolver
             self.ampl.solve()
@@ -173,7 +174,7 @@ class AMPLWrapper:
             assign_dict = self.assignment_var.getValues().toDict()
         except Exception as e:
             print(f"[Wrapper] Error extrayendo asignación final: {e}")
-            return final_cost, []
+            return final_cost, [] # Error
         
         assignments = []
         threshold = 0.0001 if mode == "MS" else 0.9
