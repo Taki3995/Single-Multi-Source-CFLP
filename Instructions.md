@@ -73,7 +73,7 @@ Después de ejecutar `git lfs pull`, los archivos `.txt` en la carpeta `data/ins
 
 ## Resolver el optimo segun instancia
 
-### Para Single-Source (SS)
+### Single-Source (SS)
 ```bash
 python src/main.py -a optimal -i Instance50x50 -m SS
 ```
@@ -90,7 +90,7 @@ python src/main.py -a optimal -i 4000x4000_1 -m SS
 python src/main.py -a optimal -i 5000x5000_1 -m SS
 ```
 
-### Para Multi-Source (MS)
+### Multi-Source (MS)
 ```bash
 python src/main.py -a optimal -i Instance50x50 -m MS
 ```
@@ -109,37 +109,37 @@ python src/main.py -a optimal -i 5000x5000_1 -m MS
 
 ## Resolver con heurística
 
-### Corridas para Single-Source (SS)
+### Single-Source (SS)
 
 ```bash
-python src/main.py -a heuristic -i Instance50x50 -m SS -n 1000
+python src/main.py -a heuristic -i Instance50x50 -m SS -n 100
 ```
 ```bash
-python src/main.py -a heuristic -i Instance1000x300 -m SS -n 1000
+python src/main.py -a heuristic -i Instance1000x300 -m SS -n 300
 ```
 ```bash
 python src/main.py -a heuristic -i 2000x2000_1 -m SS -n 1000
 ```
 ```bash
-python src/main.py -a heuristic -i 4000x4000_1 -m SS -n 500
+python src/main.py -a heuristic -i 4000x4000_1 -m SS -n 1500
 ```
 ```bash
-python src/main.py -a heuristic -i 5000x5000_1 -m SS -n 100
+python src/main.py -a heuristic -i 5000x5000_1 -m SS -n 2000
 ```
-### Corridas para Multi-Source (MS)
+### Multi-Source (MS)
 
 ```bash
-python src/main.py -a heuristic -i Instance50x50 -m MS -n 1000
+python src/main.py -a heuristic -i Instance50x50 -m MS -n 100
 ```
 ```bash
-python src/main.py -a heuristic -i Instance1000x300 -m MS -n 1000
+python src/main.py -a heuristic -i Instance1000x300 -m MS -n 300
 ```
 ```bash
 python src/main.py -a heuristic -i 2000x2000_1 -m MS -n 1000
 ```
 ```bash
-python src/main.py -a heuristic -i 4000x4000_1 -m MS -n 500
+python src/main.py -a heuristic -i 4000x4000_1 -m MS -n 1500
 ```
 ```bash
-python src/main.py -a heuristic -i 5000x5000_1 -m MS -n 100
+python src/main.py -a heuristic -i 5000x5000_1 -m MS -n 2000
 ```
