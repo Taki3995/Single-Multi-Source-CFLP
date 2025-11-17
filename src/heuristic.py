@@ -59,16 +59,13 @@ def get_neighbors_sampled(current_open_set, n_locations, sample_size):
             break
 
 
-def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_percent=0.10, neighborhood_sample_size=500):
+def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure, neighborhood_sample_size):
     """
     Función principal de Búsqueda Tabú.
     Recibe el 'ampl_wrapper' (que ya tiene los datos cargados)
     y el 'n_locations' (detectado por el wrapper).
     """
     start_time = time.time()
-
-    # Definir el tamaño de la lista tabú
-    tabu_tenure = max(5, int(n_locations * tabu_tenure_percent))
     
     print(f"\n[Heuristic] Iniciando Búsqueda Tabú...")
     print(f"Instancia: {n_locations} loc")
@@ -77,15 +74,29 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
     print(f"Tamaño Muestreo Vecindario: {neighborhood_sample_size}")
 
     # Inicialización
-    tabu_list = deque(maxlen=tabu_tenure) 
+    tabu_list = deque(maxlen=(tabu_tenure * 2)) 
     tabu_set = set()
     
-    # Solución Inicial
-    current_solution_set = generate_initial_solution(n_locations)
+    print("[Heuristic] Buscando solución inicial factible...")
     
-    # Evaluación Inicial
-    print("[Heuristic] Evaluando solución inicial...")
+    # Generar una solución inicial
+    current_solution_set = generate_initial_solution(n_locations, open_ratio=0.2)
     current_cost = ampl_wrapper.solve_assignment_fixed_x(list(current_solution_set))
+
+    # Bucle de reintento si la solución es infactible (costo 'inf')
+    max_retries = 10 # Intentar 10 veces
+    retries = 0
+    while current_cost == float('inf') and retries < max_retries:
+        retries += 1
+        print(f"[Heuristic] Solución inicial infactible. Reintentando ({retries}/{max_retries}) abriendo más centros...")
+        # Aumentar el porcentaje de centros abiertos en cada reintento
+        open_ratio_retry = 0.2 + (retries * 0.05) 
+        current_solution_set = generate_initial_solution(n_locations, open_ratio=open_ratio_retry)
+        current_cost = ampl_wrapper.solve_assignment_fixed_x(list(current_solution_set))
+
+    if current_cost == float('inf'):
+        print("[Heuristic] ERROR: No se pudo encontrar una solución inicial factible.")
+        return float('inf'), [], 0 # Salir
     
     # Inicializar la mejor solución encontrada
     best_solution_set = current_solution_set
@@ -102,12 +113,15 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
         best_neighbor_move = None
 
         neighbors_evaluated = 0
-        # Imprime el inicio de la barra de progreso
-        print(f"[Heuristic] Iter {i+1}/{max_iterations}: [", end="")
-        sys.stdout.flush()
+
+        prefix = f"[Heuristic] Iter {i+1}/{max_iterations}: "
         progress_bar_size = 40
         
-        # Explorar Vecindario muestrado (Rápido)
+        # Imprimir la barra inicial (vacía)
+        print(f"{prefix}[{'-' * progress_bar_size}]", end='\r')
+        sys.stdout.flush()
+
+        # Explorar Vecindario muestreado
         for neighbor_set, move in get_neighbors_sampled(current_solution_set, n_locations, neighborhood_sample_size):
             
             # 'move' = (j_que_cerre, j_que_abri)
@@ -119,7 +133,7 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
             # Actualizar barra
             neighbors_evaluated += 1
             progress = int((neighbors_evaluated / neighborhood_sample_size) * progress_bar_size)
-            print(f"{"=" * progress}{"-" * (progress_bar_size - progress)}]", end='\r')
+            print(f"{prefix}[{'=' * progress}{'-' * (progress_bar_size - progress)}]", end='\r')
             sys.stdout.flush()
 
             # Criterio de Aspiración:
@@ -132,7 +146,7 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
                     best_neighbor_cost = neighbor_cost
                     best_neighbor_move = move 
         # Limpiar barra
-        print(" " * (progress_bar_size + 30), end='\r') 
+        print(" " * (len(prefix) + progress_bar_size + 20), end='\r')
         sys.stdout.flush()
 
         # Mover a la mejor solución vecina encontrada
@@ -152,9 +166,8 @@ def run_tabu_search(ampl_wrapper, n_locations, max_iterations, tabu_tenure_perce
         tabu_list.append(j_closed)
         tabu_list.append(j_opened)
         
-        # Sincronizar (eliminar el más antiguo si la lista está llena)
-        if len(tabu_list) >= tabu_tenure:
-            tabu_set = set(tabu_list)
+        # Sincronizar
+        tabu_set = set(tabu_list)
 
         # --- Actualizar la Mejor Solución Global ---
         if current_cost < best_cost:

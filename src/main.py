@@ -71,6 +71,8 @@ def main(args):
     if args.action == 'optimal':
         print("\n--- Resolviendo Óptimo (MIP) ---")
 
+        # Llama a solve_optimal con mipgap=0 para el óptimo real
+        # 'timelimit' (si existe) se pasará desde argparse (no implementado, pero la función lo soporta)
         optimal_cost, opt_facilities, opt_assignments = ampl_solver.solve_optimal(
             dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0
         )
@@ -92,7 +94,7 @@ def main(args):
         print("\n--- Ejecutando Heurística Híbrida ---")
         
         print("[Main] Creando instancia persistente de AMPLWrapper...")
-        gurobi_opts_heuristic = 'outlev=0 LogToConsole=0' # Opciones "silenciosas" para el loop
+        gurobi_opts_heuristic = 'outlev=0'
         try:
             # 1. CREA EL WRAPPER (CARGA DATOS 1 VEZ)
             ampl_wrapper = ampl_solver.AMPLWrapper(
@@ -110,17 +112,12 @@ def main(args):
         # 2. LLAMA A LA HEURÍSTICA CON LOS ARGUMENTOS CORRECTOS
         print(f"[Main] N_Locations detectadas: {ampl_wrapper.get_n_locations()}")
         
-        # (Define un tamaño de muestra. 500 es un buen inicio para 50x50)
-        sample_size = 500
-        if "2000x2000" in args.instance:
-            sample_size = 1000 # Más grande para instancias más grandes
-        
         heuristic_cost, best_facilities, iters_done = heuristic.run_tabu_search(
             ampl_wrapper=ampl_wrapper,  # Pasa el objeto wrapper
-            n_locations=ampl_wrapper.get_n_locations(), # Pasa el ENTERO
+            n_locations=ampl_wrapper.get_n_locations(), # Pasa el entero
             max_iterations=args.iterations,
-            tabu_tenure_percent=0.10, # 10% de tenencia
-            neighborhood_sample_size=sample_size
+            tabu_tenure=args.tenure,
+            neighborhood_sample_size=args.sample
         )
         
         print(f"[Main] Heurística finalizada. Mejor costo: {heuristic_cost}")
@@ -175,6 +172,12 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--mode", type=str, default="SS", 
                         choices=["SS", "MS"], 
                         help="Modo: Single-Source (SS) o Multi-Source (MS)")
+
+    parser.add_argument("-t", "--tenure", type=int, default=20, 
+                        help="Tamaño (tenencia) de la lista Tabú. (Ej: 20)")
+    
+    parser.add_argument("-s", "--sample", type=int, default=500, 
+                        help="Tamaño del muestreo de vecindario por iteración. (Ej: 500)")
 
     args = parser.parse_args()
     

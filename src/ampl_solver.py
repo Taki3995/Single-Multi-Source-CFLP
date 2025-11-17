@@ -11,7 +11,7 @@ from amplpy import AMPL, Environment, DataFrame
 # os.environ["PATH"] += os.pathsep + r"C:\gurobi1003\win64\bin"
 # ------------------------------------------------------------------------
 
-def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit=None, mipgap=0):
+def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit=None, mipgap=None):
     """
     Resuelve el problema CFLP completo (MIP) para encontrar el óptimo verdadero.
     Retorna (total_cost, open_facilities_indices, assignments), 
@@ -27,10 +27,17 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
         ampl = AMPL()
         if solver == "gurobi":
             ampl.setOption('solver', solver)
-            ampl.setOption( 'gurobi_options',  
-                            'outlev=1 mipgap 0.01 ' + 
-                            'logfile "./logfile.txt" ' + 
-                            'NodefileStart=1.0 NodefileDir="."')
+            
+            # Construir opciones dinámicamente
+            options_str = 'outlev=1 logfile "./logfile.txt" NodefileStart=1.0 NodefileDir="." '
+            
+            if timelimit is not None:
+                options_str += f"timelimit {timelimit} "
+            if mipgap is not None:
+                options_str += f"mipgap {mipgap} "
+
+            ampl.setOption( 'gurobi_options', options_str)
+            
         # Cargar modelo y datos
         ampl.read(mod_file_path)
         ampl.readData(dat_file_path)
