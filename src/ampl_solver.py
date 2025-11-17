@@ -119,7 +119,7 @@ class AMPLWrapper:
         self.ampl = AMPL()
         self.ampl.setOption('solver', solver)
         if gurobi_opts is None:
-            gurobi_opts = 'outlev=0' # Opciones ligeras por defecto para la heurística
+            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' # Tiempo máximo 10 segundos, mipgap de 5%
         self.ampl.setOption('gurobi_options', gurobi_opts)
         
         print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
@@ -191,7 +191,8 @@ class AMPLWrapper:
 
             solve_result = self.ampl.getValue("solve_result")
             
-            if solve_result and ("optimal" in str(solve_result).lower() or "solved" in str(solve_result).lower()):
+            status = str(solve_result).lower()
+            if solve_result and ("optimal" in status or "solved" in status or "feasible" in status):
                 return self.total_cost_obj.value()
             else:
                 return float('inf') # Solución infactible

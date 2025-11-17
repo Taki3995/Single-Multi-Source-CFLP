@@ -94,7 +94,9 @@ def main(args):
         print("\n--- Ejecutando Heurística Híbrida ---")
         
         print("[Main] Creando instancia persistente de AMPLWrapper (solo para leer datos)...")
-        gurobi_opts_heuristic = 'outlev=0' 
+        
+        gurobi_opts_heuristic = 'outlev=0 timelimit=1.0 mipgap=0.05' 
+
         try:
             # 1. CREA EL WRAPPER (CARGA DATOS 1 VEZ)
             ampl_wrapper = ampl_solver.AMPLWrapper(
