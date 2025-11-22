@@ -1,187 +1,79 @@
 import os
 import argparse
-from data_parser import parse_and_convert
 import ampl_solver
-import utils
 import heuristic
+import utils 
 
-# Definir rutas base
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-TXT_DIR = os.path.join(DATA_DIR, 'instances_txt')
-DAT_DIR = os.path.join(DATA_DIR, 'instances_dat')
-MODELS_DIR = os.path.join(BASE_DIR, 'models')
-SOLUTIONS_DIR = os.path.join(BASE_DIR, 'solutions')
-REPORT_PATH = os.path.join(BASE_DIR, 'report.xlsx')
+# Rutas
+BASE_DIR = os.getcwd() 
+DATA_DIR = os.path.join(BASE_DIR, 'data', 'instances_dat')
+MOD_DIR = os.path.join(BASE_DIR, 'models')
+SOL_DIR = os.path.join(BASE_DIR, 'solutions')
+REP_FILE = os.path.join(BASE_DIR, 'report.xlsx')
 
-
-def get_model_path(mode):
-    """Función auxiliar para obtener la ruta del modelo."""
-    if mode == "SS":
-        mod_file = os.path.join(MODELS_DIR, 'CFLP_SingleSource.mod')
-    elif mode == "MS":
-        mod_file = os.path.join(MODELS_DIR, 'CFLP_MultiSource.mod')
-    else:
-        raise ValueError(f"Modo '{mode}' no reconocido. Use 'SS' o 'MS'.")
-        
-    if not os.path.exists(mod_file):
-        raise FileNotFoundError(f"No se encuentra el archivo de modelo: {mod_file}")
-    return mod_file
+def get_mod_path(mode):
+    if mode == "SS": return os.path.join(MOD_DIR, "CFLP_SingleSource.mod")
+    return os.path.join(MOD_DIR, "CFLP_Multisource.mod")
 
 def main(args):
+    dat_path = os.path.join(DATA_DIR, f"{args.instance}.dat")
+    mod_path = get_mod_path(args.mode)
     
-    # --- Opción 1: parsear todos los archivos de texto a .dat ---
-    if args.action == 'parse':
-        print("--- ACCIÓN: Parsear todos los .txt a .dat ---")
-        os.makedirs(DAT_DIR, exist_ok=True)
-        for f in os.listdir(TXT_DIR):
-            if f.endswith(".txt"):
-                instance_name = f.replace(".txt", "")
-                txt_file = os.path.join(TXT_DIR, f)
-                dat_file = os.path.join(DAT_DIR, f"{instance_name}.dat")
-                
-                if not os.path.exists(dat_file):
-                    print(f"Generando {dat_file}...")
-                    parse_and_convert(txt_file, dat_file)
-                else:
-                    print(f"{dat_file} ya existe. Omitiendo.")
-        print("--- Parseo Completado ---")
+    if not os.path.exists(dat_path):
+        print(f"ERROR: No existe {dat_path}. Ejecute el parser primero.")
         return
 
-    if not args.instance:
-        print("Error: Las acciones 'optimal' y 'heuristic' requieren el argumento -i/--instance.")
-        return
-
-    print(f"--- ACCIÓN: {args.action} | INSTANCIA: {args.instance} | MODO: {args.mode} ---")
-
-    # Preparar archivos para esta instancia
-    dat_file = os.path.join(DAT_DIR, f"{args.instance}.dat")
-    if not os.path.exists(dat_file):
-        # Intentar parsear si no existe
-        print(f"{dat_file} no existe. Intentando parsear...")
-        txt_file = os.path.join(TXT_DIR, f"{args.instance}.txt")
-        if not os.path.exists(txt_file):
-            print(f"Error: No se encuentra ni {dat_file} ni {txt_file}")
-            return
-        parse_and_convert(txt_file, dat_file)
-    
-    mod_file = get_model_path(args.mode)
-
-    # --- Opción 2: Resolver Óptimo Real ---
+    # --- Modo Óptimo Exacto ---
     if args.action == 'optimal':
-        print("\n--- Resolviendo Óptimo (MIP) ---")
-
-        optimal_cost, opt_facilities, opt_assignments = ampl_solver.solve_optimal(
-            dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0
-        )
-        
-        if optimal_cost is None:
-            optimal_cost = "N/A"
-
-        # Guardar en Excel
-        utils.update_report_excel(
-            report_path=REPORT_PATH,
-            instance_name=args.instance,
-            mode=args.mode,
-            optimal_cost=optimal_cost
-        )
-        print("--- Acción 'optimal' Finalizada ---")
-
-    # --- Opción 3: Resolver Heurística ---
-    elif args.action == 'heuristic':
-        print("\n--- Ejecutando Heurística Híbrida ---")
-        
-        print("[Main] Creando instancia persistente de AMPLWrapper (solo para leer datos)...")
-        
-        # Opciones de Gurobi para la heurística (rápidas)
-        gurobi_opts_heuristic = 'outlev=0 timelimit=1.0 mipgap=0.05' 
-
+        print(f"--- SOLVING EXACT: {args.instance} ({args.mode}) ---")
         try:
-            # 1. CREA EL WRAPPER (CARGA DATOS 1 VEZ)
-            ampl_wrapper = ampl_solver.AMPLWrapper(
-                dat_file, 
-                mod_file, 
-                solver="gurobi", 
-                gurobi_opts=gurobi_opts_heuristic
-            )
+            cost, open_facs, assigns = ampl_solver.solve_exact_full(dat_path, mod_path, args.mode)
+            
+            if cost is not None:
+                utils.save_solution_to_file(SOL_DIR, args.instance, args.mode, cost, open_facs, assigns)
+                utils.update_report_excel(REP_FILE, args.instance, args.mode, optimal_cost=cost)
         except Exception as e:
-            print(f"[Main] Error fatal creando AMPLWrapper: {e}")
-            return
-        
-        print("[Main] Instancia cargada. Pasando a la heurística...")
+            print(f"CRITICAL ERROR in Exact Solver: {e}")
+            import traceback
+            traceback.print_exc()
 
-        # 2. LLAMA A LA HEURÍSTICA CON LOS ARGUMENTOS CORRECTOS
-        print(f"[Main] N_Locations detectadas: {ampl_wrapper.get_n_locations()}")
+    # --- Modo Heurística ---
+    elif args.action == 'heuristic':
+        print(f"--- SOLVING HEURISTIC: {args.instance} ({args.mode}) ---")
         
-        heuristic_cost, best_facilities, iters_done = heuristic.run_tabu_search(
-            ampl_wrapper=ampl_wrapper,  # Pasa el wrapper (solo para leer datos)
-            dat_file=dat_file,          # Pasa el path al .dat
-            mod_file=mod_file,          # Pasa el path al .mod
-            n_locations=ampl_wrapper.get_n_locations(), # Pasa el entero
-            max_iterations=args.iterations,
-            tabu_tenure=args.tenure,
-            neighborhood_sample_size=args.sample
+        # 1. Setup Wrapper
+        wrapper = ampl_solver.AMPLWrapper(dat_path, mod_path, args.mode)
+        
+        # 2. Run Heuristic
+        cost, best_open_indices, time_taken = heuristic.run_tabu_search(
+            wrapper, 
+            max_iter=args.iterations, 
+            tenure=args.tenure, 
+            sample_size=args.sample
         )
         
-        print(f"[Main] Heurística finalizada. Mejor costo: {heuristic_cost}")
-
-        # 3. Obtener la asignación final para la mejor solución
-        if heuristic_cost == float('inf'):
-            print("[Main] La heurística no encontró una solución factible.")
-            best_assignments = []
-        else:
-            print("[Main] Obteniendo asignación final para la mejor solución...")
-            _ , best_assignments = ampl_wrapper.get_final_solution(best_facilities, args.mode)
+        print(f"--- Finalizando... Re-calculando asignación final detallada ---")
         
-        # 4. Cerrar la instancia AMPL
-        ampl_wrapper.close()
+        # 3. Reconstruct Final Solution
+        final_cost = wrapper.solve_subproblem(best_open_indices)
+        _, final_facs, final_assigns = wrapper.get_final_solution_details()
         
-        os.makedirs(SOLUTIONS_DIR, exist_ok=True)
+        wrapper.close()
         
-        # 3. Guardar el archivo de solución
-        utils.save_solution_to_file(
-            sol_dir=SOLUTIONS_DIR, 
-            instance_name=args.instance, 
-            mode=args.mode, 
-            cost=heuristic_cost, 
-            open_facilities=best_facilities, 
-            assignments=best_assignments
-        )
+        # 4. Save
+        utils.save_solution_to_file(SOL_DIR, args.instance, args.mode, final_cost, final_facs, final_assigns)
+        utils.update_report_excel(REP_FILE, args.instance, args.mode, heuristic_cost=final_cost, iterations=args.iterations)
         
-        # 4. Actualizar el Excel
-        utils.update_report_excel(
-            report_path=REPORT_PATH,
-            instance_name=args.instance,
-            mode=args.mode,
-            heuristic_cost=heuristic_cost,
-            iterations=iters_done # Guardamos las iteraciones que realmente hizo
-        )
-        print("--- Acción 'heuristic' Finalizada ---")
-
+        print(f"Done in {time_taken:.2f}s. Cost: {final_cost}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Resolver CFLP con Heurística Híbrida.")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-a", "--action", required=True, choices=['optimal', 'heuristic'])
+    parser.add_argument("-i", "--instance", required=True)
+    parser.add_argument("-m", "--mode", default="SS", choices=['SS', 'MS'])
+    parser.add_argument("-n", "--iterations", type=int, default=50)
+    parser.add_argument("-t", "--tenure", type=int, default=10)
+    parser.add_argument("-s", "--sample", type=int, default=50)
     
-    parser.add_argument("-a", "--action", type=str, required=True, 
-                        choices=["parse", "optimal", "heuristic"], 
-                        help="La tarea a ejecutar")
-    
-    parser.add_argument("-i", "--instance", type=str, 
-                        help="Nombre de la instancia (ej: 2000x2000_1)")
-    
-    parser.add_argument("-n", "--iterations", type=int, default=100, 
-                        help="Número de iteraciones para la heurística")
-    
-    parser.add_argument("-m", "--mode", type=str, default="SS", 
-                        choices=["SS", "MS"], 
-                        help="Modo: Single-Source (SS) o Multi-Source (MS)")
-
-    parser.add_argument("-t", "--tenure", type=int, default=20, 
-                        help="Tamaño (tenencia) de la lista Tabú. (Ej: 20)")
-    
-    parser.add_argument("-s", "--sample", type=int, default=500, 
-                        help="Tamaño del muestreo de vecindario por iteración. (Ej: 500)")
-
     args = parser.parse_args()
-    
     main(args)
