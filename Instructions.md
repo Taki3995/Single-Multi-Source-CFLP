@@ -110,21 +110,22 @@ python src/main.py -a optimal -i 5000x5000_1 -m MS
 ## Resolver con heurística
 
 ### Single-Source (SS)
+**NOTA: Con single source mi ram no aguanta, además, el problema usando heuristica y ss es igualmente un problema NP-hard (creo) por lo que demorará demasiado. Para probar efectivamente como funciona la heuristica y el tiempo ahorrado, probar con multi source.
 
 ```bash
 python src/main.py -a heuristic -i Instance50x50 -m SS -n 100
 ```
 ```bash
-python src/main.py -a heuristic -i Instance1000x300 -m SS -n 300
+python src/main.py -a heuristic -i Instance1000x300 -m SS -n 50
 ```
 ```bash
-python src/main.py -a heuristic -i 2000x2000_1 -m SS -n 1000
+python src/main.py -a heuristic -i 2000x2000_1 -m SS -n 30
 ```
 ```bash
-python src/main.py -a heuristic -i 4000x4000_1 -m SS -n 1500
+python src/main.py -a heuristic -i 4000x4000_1 -m SS -n 20
 ```
 ```bash
-python src/main.py -a heuristic -i 5000x5000_1 -m SS -n 2000
+python src/main.py -a heuristic -i 5000x5000_1 -m SS -n 20
 ```
 ### Multi-Source (MS)
 
