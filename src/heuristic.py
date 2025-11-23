@@ -20,16 +20,23 @@ def generate_initial_solution(n_locs, total_demand, capacities):
         else:
             break
             
-    # Cerrar algunos de los elegidos y abrir otros aleatorios
+    # Cerrar algunos de los elegidos para dar variedad.
     open_list = list(open_indices)
     if len(open_list) > 2:
+        # Calculamos cuántos quitar
         num_swap = max(1, int(len(open_list) * 0.2))
-        for _ in range(num_swap):
-            rem = random.choice(open_list)
+        
+        # Mezclamos la lista para elegir 'num_swap' elementos ÚNICOS al azar
+        random.shuffle(open_list)
+        
+        # Tomamos los primeros 'num_swap' elementos para eliminar
+        to_remove = open_list[:num_swap]
+        
+        for rem in to_remove:
             open_indices.remove(rem)
             current_cap -= capacities[rem]
             
-    # Rellenar aleatoriamente si bajamos de la demanda
+    # Rellenar aleatoriamente si bajamos de la demanda tras eliminar
     all_locs = list(capacities.keys())
     random.shuffle(all_locs)
     
@@ -53,6 +60,7 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
     # Evaluar
     current_cost = ampl_wrapper.solve_subproblem(current_sol)
     
+    # Manejo de infactibilidad inicial
     if current_cost == float('inf'):
         print("[Heuristic] Solución inicial infactible. Intentando abrir todo...")
         current_sol = set(range(1, n_locs + 1))
@@ -65,7 +73,7 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
     
     # Estructuras Tabú
     tabu_list = deque(maxlen=tenure)
-    tabu_set = set() # Para búsqueda rápida O(1)
+    tabu_set = set() 
     
     all_locs = set(range(1, n_locs + 1))
     
@@ -73,13 +81,12 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
     no_improve_iter = 0
     
     for it in range(max_iter):
-        # Generar vecindario (Swap: Abrir 1, Cerrar 1)
-        # Solo evaluamos si tenemos capacidad
-        
-        candidates = []
         current_open_list = list(current_sol)
         current_closed_list = list(all_locs - current_sol)
         
+        if not current_open_list or not current_closed_list:
+            break
+
         # Muestreo
         num_samples = min(sample_size, len(current_open_list) * len(current_closed_list))
         
@@ -92,12 +99,10 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
             u = random.choice(current_closed_list) # Abrir
             v = random.choice(current_open_list)   # Cerrar
             
-            move_signature = (u, v)
-            
             # Verificar Tabú
             is_tabu = (u in tabu_set) or (v in tabu_set)
             
-            # Crear vecino
+            # Crear vecino (Set copy es rápido en Python)
             neighbor = current_sol.copy()
             neighbor.add(u)
             neighbor.remove(v)
@@ -107,7 +112,7 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
             
             # Criterio de Aspiración
             if is_tabu and cost < best_cost:
-                is_tabu = False # Perdonar
+                is_tabu = False 
             
             if not is_tabu and cost < float('inf'):
                 if cost < best_neighbor_cost:
@@ -133,10 +138,11 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
                 print(f"[*] Iter {it+1}: Nuevo Récord -> {best_cost:,.2f}")
             else:
                 no_improve_iter += 1
-                if it % 10 == 0:
+                if (it+1) % 10 == 0:
                     print(f"    Iter {it+1}: Actual {current_cost:,.2f} (Mejor: {best_cost:,.2f})")
         else:
-            print(f"[!] Iter {it+1}: Sin vecinos factibles encontrados.")
+            # Si no hay vecinos válidos, pasamos turno
+            pass
             
     total_time = time.time() - start_time
     return best_cost, list(best_sol), total_time
