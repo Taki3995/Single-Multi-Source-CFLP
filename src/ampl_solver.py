@@ -1,161 +1,255 @@
-import os
-import time
-import pandas as pd
-from amplpy import AMPL
+"""
+Traductor entre python y AMPL. 
+"""
+
+import os 
+from amplpy import AMPL, Environment, DataFrame
+
+# ----- Configuración del solver -----
+# Asegura que Gurobi (o el solver utilizado) esté en el PATH.
+# Si no lo está, descomenta la siguiente linea para añadirlo manualmente
+# os.environ["PATH"] += os.pathsep + r"C:\gurobi1003\win64\bin"
+# ------------------------------------------------------------------------
+
+def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit=None, mipgap=None):
+    """
+    Resuelve el problema CFLP completo (MIP) para encontrar el óptimo verdadero.
+    Retorna (total_cost, open_facilities_indices, assignments), 
+    o en su defecto (None, None, None) si es que fallara.
+    """
+
+    print(f"\n[Solver] Iniciando búsqueda de óptimo verdadero... ")
+    print(f"Modelo: {mod_file_path}")
+    print(f"Datos: {dat_file_path}")
+
+    ampl = None # Fuera del try para cerrarlo en 'finally'
+    try:
+        ampl = AMPL()
+        if solver == "gurobi":
+            ampl.setOption('solver', solver)
+            
+            # Construir opciones dinámicamente
+            options_str = 'outlev=1 logfile "./logfile.txt" NodefileStart=1.0 NodefileDir="." '
+            
+            if timelimit is not None:
+                options_str += f"timelimit {timelimit} "
+            if mipgap is not None:
+                options_str += f"mipgap {mipgap} "
+
+            ampl.setOption( 'gurobi_options', options_str)
+            
+        # Cargar modelo y datos
+        ampl.read(mod_file_path)
+        ampl.readData(dat_file_path)
+
+        # Resolver el problema
+        print("[Solver] Resolviendo (esto puede tardar mucho dependiendo de la instancia)...")
+        ampl.solve()
+
+        solve_result = ampl.solve_result
+        print(f"[solver] Resultado: {solve_result}")
+
+        try:
+            total_cost = ampl.getObjective('Total_Cost').value()
+        except Exception:
+            total_cost = None
+
+        if total_cost is None or ("optimal" not in solve_result.lower() and "solved" not in solve_result.lower()):
+            print("[Solver] No se encontró una solución óptima o factible.")
+            return None, None, None
+        
+        print(f"[Solver] Mejor costo encontrado: {total_cost:,.2f}")
+        
+        # Obtener variables de decisión
+        facility_var = ampl.getVariable('x') # 'x' son las localizaciones
+        assignment_var = ampl.getVariable('y') # 'y' son las asignaciones
+        
+        # 1. Filtrar 'x' (Centros abiertos)
+        facility_vals = facility_var.getValues().toDict()
+        open_facilities = [int(j) for j, val in facility_vals.items() if val > 0.9]
+        
+        print("[Solver] Obteniendo DataFrame de asignaciones...")
+        try:
+            assign_dict = assignment_var.getValues().toDict()
+            print(f"[Solver] Filtrando {len(assign_dict)} asignaciones...")
+        except Exception as e:
+            print(f"[Solver] ERROR: .toDict() falló: {e}.")
+            return total_cost, open_facilities, []
+
+        # 2. Filtrar 'y' (Asignaciones)
+        assignments = []
+        if mode == "SS":
+            print("[Solver] Procesando en modo Single-Source (SS).")
+            threshold = 0.9 # Umbral para binario
+            for (i, j), val in assign_dict.items():
+                try:
+                    if float(val) > threshold:
+                        assignments.append((int(i), int(j)))
+                except (ValueError, TypeError): pass
+        
+        elif mode == "MS":
+            print("[Solver] Procesando en modo Multi-Source (MS).")
+            threshold = 1e-6 # Umbral para fraccional (cualquier valor > 0)
+            for (i, j), val in assign_dict.items():
+                try:
+                    if float(val) > threshold:
+                        assignments.append((int(i), int(j), float(val)))
+                except (ValueError, TypeError): pass
+        else:
+            print(f"[Solver] Advertencia: Modo '{mode}' no reconocido para procesar asignaciones.")
+
+        print(f"[Solver] Asignaciones filtradas: {len(assignments)}")
+        print(f"[Solver] Óptimo encontrado. Costo = {total_cost:,.2f}")
+        return total_cost, open_facilities, assignments
+
+    except Exception as e:
+        print(f"[Solver] Error en 'solve_optimal': {e}")
+        return None, None, None
+    finally:
+        if ampl:
+            ampl.close() # Asegurarse de cerrar AMPL y liberar la licencia
+
 
 class AMPLWrapper:
-    def __init__(self, dat_file_path, mod_file_path, mode="MS"):
+    def __init__(self, dat_file_path, mod_file_path, solver="gurobi", gurobi_opts=None):
         """
-        Inicializa AMPL y carga el modelo una sola vez.
-        (Lo utiliza la heurística)
+        Carga el modelo y los datos UNA SOLA VEZ al ser instanciado.
+        (Solo se usa para leer datos iniciales, no para resolver)
         """
         self.ampl = AMPL()
-        self.mode = mode
-        self.ampl.setOption('solver_msg', 0)
-        self.ampl.setOption('solver', 'gurobi')
-        
-        if mode == "SS":
-            # Single Source (Entero)
-            gurobi_opts = "outlev=0 threads=0 presolve=2 mipgap=0.01 mipfocus=1 NodefileStart=4.0"
-        else:
-            # Multi Source (Lineal/Continuo)
-            gurobi_opts = "outlev=0 threads=0 presolve=2 method=2 NodefileStart=4.0"
-
+        self.ampl.setOption('solver', solver)
+        if gurobi_opts is None:
+            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' # Opciones por defecto (fallback)
         self.ampl.setOption('gurobi_options', gurobi_opts)
-
-        print(f"[Wrapper] Cargando modelo: {os.path.basename(mod_file_path)}")
-        print(f"[Wrapper] Cargando datos: {os.path.basename(dat_file_path)}...")
         
-        t0 = time.time()
+        print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
         self.ampl.read(mod_file_path)
         self.ampl.readData(dat_file_path)
-        print(f"[Wrapper] Carga completada")
-
-        self.var_x = self.ampl.getVariable('x')
-        self.var_y = self.ampl.getVariable('y')
-        self.obj = self.ampl.getObjective('Total_Cost')
+        print("[Wrapper] Modelo y datos cargados.")
         
-        # Cache de parámetros
+        # Guardar referencias a las entidades de AMPL
+        self.facility_var = self.ampl.getVariable('x')
+        self.assignment_var = self.ampl.getVariable('y')
+        self.total_cost_obj = self.ampl.getObjective('Total_Cost')
+        
+        # Guardar N_Locations (para la heurística)
         self.n_locations = int(self.ampl.getParameter('loc').value())
-        self.total_demand = 0
-        self.capacities = {}
-        
+        self.all_locations_indices = list(range(1, self.n_locations + 1))
+
+        print("[Wrapper] Calculando demanda total y capacidades...")
         try:
+            self.demands = self.ampl.getParameter('dem').getValues().toDict()
             self.capacities = self.ampl.getParameter('ICap').getValues().toDict()
-            self.capacities = {int(k): v for k, v in self.capacities.items()}
-            dems = self.ampl.getParameter('dem').getValues().toDict()
-            self.total_demand = sum(dems.values())
         except Exception as e:
-            print(f"[Wrapper] Error leyendo parámetros: {e}")
-
-        self.all_locs = list(range(1, self.n_locations + 1))
-
-    def calculate_relaxed_lower_bound(self):
-        """
-        Calcula la Cota Inferior (Lower Bound) relajando el problema.
-        Esto nos da un valor de referencia (0% de Gap).
-        """
-        print("[Wrapper] Calculando Cota Inferior teórica...")
-        # Configurar solver para relajación rápida (LP)
-        # method=2 es Barrera
-        current_opts = self.ampl.getOption('gurobi_options')
-        self.ampl.setOption('gurobi_options', "outlev=0 method=2 presolve=2")
-        
-        # Liberar variables X (unfix) para que el solver decida los mejores centros teóricos
-        self.var_x.unfix()
-        
-        # Relajar integridadd (Solo si estamos en SS, aunque en MS ya es relajado 'y', x sigue binario)
-        self.ampl.solve()
-        
-        # Obtener valor
-        try:
-            lb = self.obj.value()
-        except:
-            lb = 0.001 # Evitar división por cero
+            print(f"[Wrapper] ERROR: No se pudieron leer parámetros 'dem' o 'ICap'. ¿Están en el .dat?")
+            raise e
             
-        print(f"[Wrapper] Cota Inferior encontrada: {lb:,.2f}")
+        # Calcular demanda total
+        self.total_demand = sum(self.demands.values())
         
-        # Restaurar opciones
-        self.ampl.setOption('gurobi_options', current_opts)
-        
-        return lb
+        # Crear una lista de tuplas (capacidad, indice) para la heurística
+        # Ordenada de mayor a menor capacidad
+        self.capacity_list = sorted(
+            [(cap, int(j)) for j, cap in self.capacities.items() if cap > 0],
+            reverse=True 
+        )
+        print(f"[Wrapper] Demanda Total Detectada: {self.total_demand:,.0f}")
+        if not self.capacity_list:
+            print("[Wrapper] ADVERTENCIA: No se encontraron capacidades > 0.")
 
-    def solve_subproblem(self, open_indices):
+    def get_n_locations(self):
+        """Devuelve el número de localizaciones para la heurística."""
+        return self.n_locations
+
+    def get_total_demand(self):
+        """Retorna la demanda total de todos los clientes."""
+        return self.total_demand
+
+    def get_capacity_list(self):
+        """Retorna la lista de (capacidad, indice) ordenada."""
+        return self.capacity_list
+
+
+    def solve_assignment_persistent(self, open_facilities_indices):
         """
-        Resuelve el subproblema para la heurística.
+        Resuelve la asignación usando la instancia AMPL persistente.
+        Esto es llamado miles de veces por la heurística.
         """
         try:
-            # Fijación rápida de variables
-            x_values = {i: 0 for i in self.all_locs}
-            for i in open_indices:
-                x_values[i] = 1
-            self.var_x.setValues(x_values)
+            # 1. Fijar las variables 'x' (centros abiertos)
+            open_set = set(open_facilities_indices)
+            values_dict = {}
+            for j in self.all_locations_indices:
+                values_dict[j] = 1.0 if j in open_set else 0.0
 
+            self.facility_var.set_values(values_dict)
+
+            # 2. Resolver
             self.ampl.solve()
+            try:
+                cost = self.total_cost_obj.value()
+                
+                # Si el costo es None (raro, pero puede pasar)
+                if cost is None:
+                    return float('inf')
+                    
+                return float(cost) # Devolver el costo, sea óptimo o no
             
-            result = self.ampl.get_value("solve_result")
-            # Si es 'infeasible', retornamos infinito
-            if result == "infeasible":
+            except Exception:
+                # Esta excepción se activa si NO hay solución (infactible)
+                # y .value() falla.
                 return float('inf')
-            
-            return self.obj.value()
 
-        except Exception:
+        except Exception as e:
+            # Esta es una excepción de más alto nivel (ej. AMPL crashea)
+            print(f"[Wrapper] ERROR en solve_assignment_persistent: {e}")
             return float('inf')
 
-    def get_final_solution_details(self):
+    def get_final_solution(self, open_facilities_indices, mode):
         """
-        Extrae la solución completa al final del proceso.
+        Se llama una vez al final de la heurística para obtener 
+        el costo Y la lista de asignaciones.
         """
-        cost = self.obj.value()
-        x_dict = self.var_x.getValues().toDict()
-        open_facilities = [int(k) for k, v in x_dict.items() if v > 0.5]
+        # Obtener el costo final usando el método persistente
+        final_cost = self.solve_assignment_persistent(open_facilities_indices)
+
+        if final_cost == float('inf'):
+            return final_cost, []
+        
+        print("[Wrapper] Extrayendo asignación final...")
+        try:
+            # 2. re-resolver en la instancia persistente (1 sola vez)
+            # Esto es necesario para que .getValues() tenga los datos correctos
+            open_set = set(open_facilities_indices)
+            values_dict = {}
+            for j in self.all_locations_indices:
+                values_dict[j] = 1.0 if j in open_set else 0.0
+            self.facility_var.set_values(values_dict)
+            self.ampl.solve() # Esta llamada es segura (solo 1 vez)
+            
+            assign_dict = self.assignment_var.getValues().toDict()
+        except Exception as e:
+            print(f"[Wrapper] Error extrayendo asignación final: {e}")
+            return final_cost, [] # Error
         
         assignments = []
-        print("[Wrapper] Extrayendo matriz de asignación...")
+        threshold = 0.0001 if mode == "MS" else 0.9
+        for (i, j), val in assign_dict.items():
+            try:
+                if float(val) > threshold:
+                    if mode == "SS":
+                        assignments.append((int(i), int(j)))
+                    else: # MS
+                        assignments.append((int(i), int(j), float(val)))
+            except (ValueError, TypeError):
+                pass
         
-        y_df = self.var_y.getValues().toPandas()
-        
-        threshold = 0.001 if self.mode == "MS" else 0.9
-        active_assignments = y_df[y_df.iloc[:, 0] > threshold]
-        
-        for index, row in active_assignments.iterrows():
-            cli, loc = index
-            val = row[0]
-            if self.mode == "SS":
-                assignments.append((int(cli), int(loc)))
-            else:
-                assignments.append((int(cli), int(loc), float(val)))
-                
-        return cost, open_facilities, assignments
+        return final_cost, assignments
 
     def close(self):
-        self.ampl.close()
-
-
-def solve_exact_full(dat_path, mod_path, mode):
-    """
-    Función para resolver el problema completo buscando el óptimo real.
-    outlev=1 muestra el log en consola; mipgap=0.0 busca el optimo estricto; 
-    threads=0 usa todos los nucleos de la cpu; nodefilestart=4 escribe el arbol en el 
-    disco si supera los 4gb.
-    """
-    wrapper = AMPLWrapper(dat_path, mod_path, mode)
-    print("[Exact] Configurando Gurobi para búsqueda de óptimo global...")
-    gurobi_opts = "outlev=1 mipgap=0.0 presolve=2 threads=0 NodefileStart=4.0"
-    
-    wrapper.ampl.setOption('gurobi_options', gurobi_opts)
-    
-    print("[Exact] Comenzando resolución...")
-    
-    # Liberar X para que Gurobi decida
-    wrapper.var_x.unfix() 
-    
-    wrapper.ampl.solve()
-    
-    solve_result = wrapper.ampl.get_value("solve_result")
-    print(f"[Exact] Estado final del solver: {solve_result}")
-
-    cost, open_facs, assigns = wrapper.get_final_solution_details()
-    wrapper.close()
-    return cost, open_facs, assigns
+        """Cierra la instancia de AMPL."""
+        try:
+            self.ampl.close()
+            print("[Wrapper] Instancia AMPL cerrada.")
+        except:
+            pass
