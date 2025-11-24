@@ -1,255 +1,187 @@
-"""
-Traductor entre python y AMPL. 
-"""
+import os
+import argparse
+from data_parser import parse_and_convert
+import ampl_solver
+import utils
+import heuristic
 
-import os 
-from amplpy import AMPL, Environment, DataFrame
+# Definir rutas base
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+TXT_DIR = os.path.join(DATA_DIR, 'instances_txt')
+DAT_DIR = os.path.join(DATA_DIR, 'instances_dat')
+MODELS_DIR = os.path.join(BASE_DIR, 'models')
+SOLUTIONS_DIR = os.path.join(BASE_DIR, 'solutions')
+REPORT_PATH = os.path.join(BASE_DIR, 'report.xlsx')
 
-# ----- Configuración del solver -----
-# Asegura que Gurobi (o el solver utilizado) esté en el PATH.
-# Si no lo está, descomenta la siguiente linea para añadirlo manualmente
-# os.environ["PATH"] += os.pathsep + r"C:\gurobi1003\win64\bin"
-# ------------------------------------------------------------------------
 
-def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit=None, mipgap=None):
-    """
-    Resuelve el problema CFLP completo (MIP) para encontrar el óptimo verdadero.
-    Retorna (total_cost, open_facilities_indices, assignments), 
-    o en su defecto (None, None, None) si es que fallara.
-    """
-
-    print(f"\n[Solver] Iniciando búsqueda de óptimo verdadero... ")
-    print(f"Modelo: {mod_file_path}")
-    print(f"Datos: {dat_file_path}")
-
-    ampl = None # Fuera del try para cerrarlo en 'finally'
-    try:
-        ampl = AMPL()
-        if solver == "gurobi":
-            ampl.setOption('solver', solver)
-            
-            # Construir opciones dinámicamente
-            options_str = 'outlev=1 logfile "./logfile.txt" NodefileStart=1.0 NodefileDir="." '
-            
-            if timelimit is not None:
-                options_str += f"timelimit {timelimit} "
-            if mipgap is not None:
-                options_str += f"mipgap {mipgap} "
-
-            ampl.setOption( 'gurobi_options', options_str)
-            
-        # Cargar modelo y datos
-        ampl.read(mod_file_path)
-        ampl.readData(dat_file_path)
-
-        # Resolver el problema
-        print("[Solver] Resolviendo (esto puede tardar mucho dependiendo de la instancia)...")
-        ampl.solve()
-
-        solve_result = ampl.solve_result
-        print(f"[solver] Resultado: {solve_result}")
-
-        try:
-            total_cost = ampl.getObjective('Total_Cost').value()
-        except Exception:
-            total_cost = None
-
-        if total_cost is None or ("optimal" not in solve_result.lower() and "solved" not in solve_result.lower()):
-            print("[Solver] No se encontró una solución óptima o factible.")
-            return None, None, None
+def get_model_path(mode):
+    """Función auxiliar para obtener la ruta del modelo."""
+    if mode == "SS":
+        mod_file = os.path.join(MODELS_DIR, 'CFLP_SingleSource.mod')
+    elif mode == "MS":
+        mod_file = os.path.join(MODELS_DIR, 'CFLP_MultiSource.mod')
+    else:
+        raise ValueError(f"Modo '{mode}' no reconocido. Use 'SS' o 'MS'.")
         
-        print(f"[Solver] Mejor costo encontrado: {total_cost:,.2f}")
-        
-        # Obtener variables de decisión
-        facility_var = ampl.getVariable('x') # 'x' son las localizaciones
-        assignment_var = ampl.getVariable('y') # 'y' son las asignaciones
-        
-        # 1. Filtrar 'x' (Centros abiertos)
-        facility_vals = facility_var.getValues().toDict()
-        open_facilities = [int(j) for j, val in facility_vals.items() if val > 0.9]
-        
-        print("[Solver] Obteniendo DataFrame de asignaciones...")
-        try:
-            assign_dict = assignment_var.getValues().toDict()
-            print(f"[Solver] Filtrando {len(assign_dict)} asignaciones...")
-        except Exception as e:
-            print(f"[Solver] ERROR: .toDict() falló: {e}.")
-            return total_cost, open_facilities, []
+    if not os.path.exists(mod_file):
+        raise FileNotFoundError(f"No se encuentra el archivo de modelo: {mod_file}")
+    return mod_file
 
-        # 2. Filtrar 'y' (Asignaciones)
-        assignments = []
-        if mode == "SS":
-            print("[Solver] Procesando en modo Single-Source (SS).")
-            threshold = 0.9 # Umbral para binario
-            for (i, j), val in assign_dict.items():
-                try:
-                    if float(val) > threshold:
-                        assignments.append((int(i), int(j)))
-                except (ValueError, TypeError): pass
-        
-        elif mode == "MS":
-            print("[Solver] Procesando en modo Multi-Source (MS).")
-            threshold = 1e-6 # Umbral para fraccional (cualquier valor > 0)
-            for (i, j), val in assign_dict.items():
-                try:
-                    if float(val) > threshold:
-                        assignments.append((int(i), int(j), float(val)))
-                except (ValueError, TypeError): pass
-        else:
-            print(f"[Solver] Advertencia: Modo '{mode}' no reconocido para procesar asignaciones.")
-
-        print(f"[Solver] Asignaciones filtradas: {len(assignments)}")
-        print(f"[Solver] Óptimo encontrado. Costo = {total_cost:,.2f}")
-        return total_cost, open_facilities, assignments
-
-    except Exception as e:
-        print(f"[Solver] Error en 'solve_optimal': {e}")
-        return None, None, None
-    finally:
-        if ampl:
-            ampl.close() # Asegurarse de cerrar AMPL y liberar la licencia
-
-
-class AMPLWrapper:
-    def __init__(self, dat_file_path, mod_file_path, solver="gurobi", gurobi_opts=None):
-        """
-        Carga el modelo y los datos UNA SOLA VEZ al ser instanciado.
-        (Solo se usa para leer datos iniciales, no para resolver)
-        """
-        self.ampl = AMPL()
-        self.ampl.setOption('solver', solver)
-        if gurobi_opts is None:
-            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' # Opciones por defecto (fallback)
-        self.ampl.setOption('gurobi_options', gurobi_opts)
-        
-        print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
-        self.ampl.read(mod_file_path)
-        self.ampl.readData(dat_file_path)
-        print("[Wrapper] Modelo y datos cargados.")
-        
-        # Guardar referencias a las entidades de AMPL
-        self.facility_var = self.ampl.getVariable('x')
-        self.assignment_var = self.ampl.getVariable('y')
-        self.total_cost_obj = self.ampl.getObjective('Total_Cost')
-        
-        # Guardar N_Locations (para la heurística)
-        self.n_locations = int(self.ampl.getParameter('loc').value())
-        self.all_locations_indices = list(range(1, self.n_locations + 1))
-
-        print("[Wrapper] Calculando demanda total y capacidades...")
-        try:
-            self.demands = self.ampl.getParameter('dem').getValues().toDict()
-            self.capacities = self.ampl.getParameter('ICap').getValues().toDict()
-        except Exception as e:
-            print(f"[Wrapper] ERROR: No se pudieron leer parámetros 'dem' o 'ICap'. ¿Están en el .dat?")
-            raise e
-            
-        # Calcular demanda total
-        self.total_demand = sum(self.demands.values())
-        
-        # Crear una lista de tuplas (capacidad, indice) para la heurística
-        # Ordenada de mayor a menor capacidad
-        self.capacity_list = sorted(
-            [(cap, int(j)) for j, cap in self.capacities.items() if cap > 0],
-            reverse=True 
-        )
-        print(f"[Wrapper] Demanda Total Detectada: {self.total_demand:,.0f}")
-        if not self.capacity_list:
-            print("[Wrapper] ADVERTENCIA: No se encontraron capacidades > 0.")
-
-    def get_n_locations(self):
-        """Devuelve el número de localizaciones para la heurística."""
-        return self.n_locations
-
-    def get_total_demand(self):
-        """Retorna la demanda total de todos los clientes."""
-        return self.total_demand
-
-    def get_capacity_list(self):
-        """Retorna la lista de (capacidad, indice) ordenada."""
-        return self.capacity_list
-
-
-    def solve_assignment_persistent(self, open_facilities_indices):
-        """
-        Resuelve la asignación usando la instancia AMPL persistente.
-        Esto es llamado miles de veces por la heurística.
-        """
-        try:
-            # 1. Fijar las variables 'x' (centros abiertos)
-            open_set = set(open_facilities_indices)
-            values_dict = {}
-            for j in self.all_locations_indices:
-                values_dict[j] = 1.0 if j in open_set else 0.0
-
-            self.facility_var.set_values(values_dict)
-
-            # 2. Resolver
-            self.ampl.solve()
-            try:
-                cost = self.total_cost_obj.value()
+def main(args):
+    
+    # --- Opción 1: parsear todos los archivos de texto a .dat ---
+    if args.action == 'parse':
+        print("--- ACCIÓN: Parsear todos los .txt a .dat ---")
+        os.makedirs(DAT_DIR, exist_ok=True)
+        for f in os.listdir(TXT_DIR):
+            if f.endswith(".txt"):
+                instance_name = f.replace(".txt", "")
+                txt_file = os.path.join(TXT_DIR, f)
+                dat_file = os.path.join(DAT_DIR, f"{instance_name}.dat")
                 
-                # Si el costo es None (raro, pero puede pasar)
-                if cost is None:
-                    return float('inf')
-                    
-                return float(cost) # Devolver el costo, sea óptimo o no
-            
-            except Exception:
-                # Esta excepción se activa si NO hay solución (infactible)
-                # y .value() falla.
-                return float('inf')
+                if not os.path.exists(dat_file):
+                    print(f"Generando {dat_file}...")
+                    parse_and_convert(txt_file, dat_file)
+                else:
+                    print(f"{dat_file} ya existe. Omitiendo.")
+        print("--- Parseo Completado ---")
+        return
 
-        except Exception as e:
-            # Esta es una excepción de más alto nivel (ej. AMPL crashea)
-            print(f"[Wrapper] ERROR en solve_assignment_persistent: {e}")
-            return float('inf')
+    if not args.instance:
+        print("Error: Las acciones 'optimal' y 'heuristic' requieren el argumento -i/--instance.")
+        return
 
-    def get_final_solution(self, open_facilities_indices, mode):
-        """
-        Se llama una vez al final de la heurística para obtener 
-        el costo Y la lista de asignaciones.
-        """
-        # Obtener el costo final usando el método persistente
-        final_cost = self.solve_assignment_persistent(open_facilities_indices)
+    print(f"--- ACCIÓN: {args.action} | INSTANCIA: {args.instance} | MODO: {args.mode} ---")
 
-        if final_cost == float('inf'):
-            return final_cost, []
+    # Preparar archivos para esta instancia
+    dat_file = os.path.join(DAT_DIR, f"{args.instance}.dat")
+    if not os.path.exists(dat_file):
+        # Intentar parsear si no existe
+        print(f"{dat_file} no existe. Intentando parsear...")
+        txt_file = os.path.join(TXT_DIR, f"{args.instance}.txt")
+        if not os.path.exists(txt_file):
+            print(f"Error: No se encuentra ni {dat_file} ni {txt_file}")
+            return
+        parse_and_convert(txt_file, dat_file)
+    
+    mod_file = get_model_path(args.mode)
+
+    # --- Opción 2: Resolver Óptimo Real ---
+    if args.action == 'optimal':
+        print("\n--- Resolviendo Óptimo (MIP) ---")
+
+        optimal_cost, opt_facilities, opt_assignments = ampl_solver.solve_optimal(
+            dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0
+        )
         
-        print("[Wrapper] Extrayendo asignación final...")
+        if optimal_cost is None:
+            optimal_cost = "N/A"
+
+        # Guardar en Excel
+        utils.update_report_excel(
+            report_path=REPORT_PATH,
+            instance_name=args.instance,
+            mode=args.mode,
+            optimal_cost=optimal_cost
+        )
+        print("--- Acción 'optimal' Finalizada ---")
+
+    # --- Opción 3: Resolver Heurística ---
+    elif args.action == 'heuristic':
+        print("\n--- Ejecutando Heurística Híbrida ---")
+        
+        print("[Main] Creando instancia persistente de AMPLWrapper (solo para leer datos)...")
+        
+        # Opciones de Gurobi para la heurística (rápidas)
+        gurobi_opts_heuristic = 'outlev=0 timelimit=1.0 mipgap=0.05' 
+
         try:
-            # 2. re-resolver en la instancia persistente (1 sola vez)
-            # Esto es necesario para que .getValues() tenga los datos correctos
-            open_set = set(open_facilities_indices)
-            values_dict = {}
-            for j in self.all_locations_indices:
-                values_dict[j] = 1.0 if j in open_set else 0.0
-            self.facility_var.set_values(values_dict)
-            self.ampl.solve() # Esta llamada es segura (solo 1 vez)
-            
-            assign_dict = self.assignment_var.getValues().toDict()
+            # 1. CREA EL WRAPPER (CARGA DATOS 1 VEZ)
+            ampl_wrapper = ampl_solver.AMPLWrapper(
+                dat_file, 
+                mod_file, 
+                solver="gurobi", 
+                gurobi_opts=gurobi_opts_heuristic
+            )
         except Exception as e:
-            print(f"[Wrapper] Error extrayendo asignación final: {e}")
-            return final_cost, [] # Error
+            print(f"[Main] Error fatal creando AMPLWrapper: {e}")
+            return
         
-        assignments = []
-        threshold = 0.0001 if mode == "MS" else 0.9
-        for (i, j), val in assign_dict.items():
-            try:
-                if float(val) > threshold:
-                    if mode == "SS":
-                        assignments.append((int(i), int(j)))
-                    else: # MS
-                        assignments.append((int(i), int(j), float(val)))
-            except (ValueError, TypeError):
-                pass
-        
-        return final_cost, assignments
+        print("[Main] Instancia cargada. Pasando a la heurística...")
 
-    def close(self):
-        """Cierra la instancia de AMPL."""
-        try:
-            self.ampl.close()
-            print("[Wrapper] Instancia AMPL cerrada.")
-        except:
-            pass
+        # 2. LLAMA A LA HEURÍSTICA CON LOS ARGUMENTOS CORRECTOS
+        print(f"[Main] N_Locations detectadas: {ampl_wrapper.get_n_locations()}")
+        
+        heuristic_cost, best_facilities, iters_done = heuristic.run_tabu_search(
+            ampl_wrapper=ampl_wrapper,  # Pasa el wrapper (solo para leer datos)
+            dat_file=dat_file,          # Pasa el path al .dat
+            mod_file=mod_file,          # Pasa el path al .mod
+            n_locations=ampl_wrapper.get_n_locations(), # Pasa el entero
+            max_iterations=args.iterations,
+            tabu_tenure=args.tenure,
+            neighborhood_sample_size=args.sample
+        )
+        
+        print(f"[Main] Heurística finalizada. Mejor costo: {heuristic_cost}")
+
+        # 3. Obtener la asignación final para la mejor solución
+        if heuristic_cost == float('inf'):
+            print("[Main] La heurística no encontró una solución factible.")
+            best_assignments = []
+        else:
+            print("[Main] Obteniendo asignación final para la mejor solución...")
+            _ , best_assignments = ampl_wrapper.get_final_solution(best_facilities, args.mode)
+        
+        # 4. Cerrar la instancia AMPL
+        ampl_wrapper.close()
+        
+        os.makedirs(SOLUTIONS_DIR, exist_ok=True)
+        
+        # 3. Guardar el archivo de solución
+        utils.save_solution_to_file(
+            sol_dir=SOLUTIONS_DIR, 
+            instance_name=args.instance, 
+            mode=args.mode, 
+            cost=heuristic_cost, 
+            open_facilities=best_facilities, 
+            assignments=best_assignments
+        )
+        
+        # 4. Actualizar el Excel
+        utils.update_report_excel(
+            report_path=REPORT_PATH,
+            instance_name=args.instance,
+            mode=args.mode,
+            heuristic_cost=heuristic_cost,
+            iterations=iters_done # Guardamos las iteraciones que realmente hizo
+        )
+        print("--- Acción 'heuristic' Finalizada ---")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Resolver CFLP con Heurística Híbrida.")
+    
+    parser.add_argument("-a", "--action", type=str, required=True, 
+                        choices=["parse", "optimal", "heuristic"], 
+                        help="La tarea a ejecutar")
+    
+    parser.add_argument("-i", "--instance", type=str, 
+                        help="Nombre de la instancia (ej: 2000x2000_1)")
+    
+    parser.add_argument("-n", "--iterations", type=int, default=100, 
+                        help="Número de iteraciones para la heurística")
+    
+    parser.add_argument("-m", "--mode", type=str, default="SS", 
+                        choices=["SS", "MS"], 
+                        help="Modo: Single-Source (SS) o Multi-Source (MS)")
+
+    parser.add_argument("-t", "--tenure", type=int, default=20, 
+                        help="Tamaño (tenencia) de la lista Tabú. (Ej: 20)")
+    
+    parser.add_argument("-s", "--sample", type=int, default=500, 
+                        help="Tamaño del muestreo de vecindario por iteración. (Ej: 500)")
+
+    args = parser.parse_args()
+    
+    main(args)
