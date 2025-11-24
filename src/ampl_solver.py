@@ -52,6 +52,43 @@ class AMPLWrapper:
 
         self.all_locs = list(range(1, self.n_locations + 1))
 
+    def calculate_relaxed_lower_bound(self):
+        """
+        Calcula la Cota Inferior (Lower Bound) relajando el problema.
+        Esto nos da un valor de referencia (el 0% de Gap).
+        """
+        print("[Wrapper] Calculando Cota Inferior teórica (Referencia para el 0%)...")
+        
+        # 1. Guardar configuración actual
+        # (No es necesario guardar valores de X porque la heurística los sobrescribe siempre)
+        
+        # 2. Configurar solver para relajación rápida (LP)
+        # method=2 es Barrera (muy rápido para 5000x5000 relajado)
+        current_opts = self.ampl.getOption('gurobi_options')
+        self.ampl.setOption('gurobi_options', "outlev=0 method=2 presolve=2")
+        
+        # 3. Liberar variables X (unfix) para que el solver decida los mejores centros teóricos
+        self.var_x.unfix()
+        
+        # 4. Relajar integridadd (Solo si estamos en SS, aunque en MS ya es relajado 'y', x sigue binario)
+        # Para obtener una cota inferior rápida, dejamos que AMPL resuelva el modelo tal cual
+        # pero con X libre. Gurobi resolverá la relajación lineal inicial rápido.
+        
+        self.ampl.solve()
+        
+        # 5. Obtener valor
+        try:
+            lb = self.obj.value()
+        except:
+            lb = 0.001 # Evitar división por cero
+            
+        print(f"[Wrapper] Cota Inferior encontrada: {lb:,.2f}")
+        
+        # 6. Restaurar opciones
+        self.ampl.setOption('gurobi_options', current_opts)
+        
+        return lb
+
     def solve_subproblem(self, open_indices):
         """
         Resuelve el subproblema para la heurística.
