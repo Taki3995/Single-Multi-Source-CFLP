@@ -1,185 +1,255 @@
-import random
-import time
-from collections import deque
+"""
+Traductor entre python y AMPL. 
+"""
 
-def generate_initial_solution(n_locs, total_demand, capacities):
-    """Greedy constructivo para iniciar con algo decente."""
-    sorted_caps = sorted(capacities.items(), key=lambda x: x[1], reverse=True)
-    current_cap = 0
-    open_indices = set()
-    
-    # Cubrir demanda + buffer
-    target_demand = total_demand * 1.15 # Buffer del 15%
-    
-    for loc, cap in sorted_caps:
-        if current_cap < target_demand:
-            open_indices.add(loc)
-            current_cap += cap
+import os 
+from amplpy import AMPL, Environment, DataFrame
+
+# ----- Configuración del solver -----
+# Asegura que Gurobi (o el solver utilizado) esté en el PATH.
+# Si no lo está, descomenta la siguiente linea para añadirlo manualmente
+# os.environ["PATH"] += os.pathsep + r"C:\gurobi1003\win64\bin"
+# ------------------------------------------------------------------------
+
+def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit=None, mipgap=None):
+    """
+    Resuelve el problema CFLP completo (MIP) para encontrar el óptimo verdadero.
+    Retorna (total_cost, open_facilities_indices, assignments), 
+    o en su defecto (None, None, None) si es que fallara.
+    """
+
+    print(f"\n[Solver] Iniciando búsqueda de óptimo verdadero... ")
+    print(f"Modelo: {mod_file_path}")
+    print(f"Datos: {dat_file_path}")
+
+    ampl = None # Fuera del try para cerrarlo en 'finally'
+    try:
+        ampl = AMPL()
+        if solver == "gurobi":
+            ampl.setOption('solver', solver)
+            
+            # Construir opciones dinámicamente
+            options_str = 'outlev=1 logfile "./logfile.txt" NodefileStart=1.0 NodefileDir="." '
+            
+            if timelimit is not None:
+                options_str += f"timelimit {timelimit} "
+            if mipgap is not None:
+                options_str += f"mipgap {mipgap} "
+
+            ampl.setOption( 'gurobi_options', options_str)
+            
+        # Cargar modelo y datos
+        ampl.read(mod_file_path)
+        ampl.readData(dat_file_path)
+
+        # Resolver el problema
+        print("[Solver] Resolviendo (esto puede tardar mucho dependiendo de la instancia)...")
+        ampl.solve()
+
+        solve_result = ampl.solve_result
+        print(f"[solver] Resultado: {solve_result}")
+
+        try:
+            total_cost = ampl.getObjective('Total_Cost').value()
+        except Exception:
+            total_cost = None
+
+        if total_cost is None or ("optimal" not in solve_result.lower() and "solved" not in solve_result.lower()):
+            print("[Solver] No se encontró una solución óptima o factible.")
+            return None, None, None
+        
+        print(f"[Solver] Mejor costo encontrado: {total_cost:,.2f}")
+        
+        # Obtener variables de decisión
+        facility_var = ampl.getVariable('x') # 'x' son las localizaciones
+        assignment_var = ampl.getVariable('y') # 'y' son las asignaciones
+        
+        # 1. Filtrar 'x' (Centros abiertos)
+        facility_vals = facility_var.getValues().toDict()
+        open_facilities = [int(j) for j, val in facility_vals.items() if val > 0.9]
+        
+        print("[Solver] Obteniendo DataFrame de asignaciones...")
+        try:
+            assign_dict = assignment_var.getValues().toDict()
+            print(f"[Solver] Filtrando {len(assign_dict)} asignaciones...")
+        except Exception as e:
+            print(f"[Solver] ERROR: .toDict() falló: {e}.")
+            return total_cost, open_facilities, []
+
+        # 2. Filtrar 'y' (Asignaciones)
+        assignments = []
+        if mode == "SS":
+            print("[Solver] Procesando en modo Single-Source (SS).")
+            threshold = 0.9 # Umbral para binario
+            for (i, j), val in assign_dict.items():
+                try:
+                    if float(val) > threshold:
+                        assignments.append((int(i), int(j)))
+                except (ValueError, TypeError): pass
+        
+        elif mode == "MS":
+            print("[Solver] Procesando en modo Multi-Source (MS).")
+            threshold = 1e-6 # Umbral para fraccional (cualquier valor > 0)
+            for (i, j), val in assign_dict.items():
+                try:
+                    if float(val) > threshold:
+                        assignments.append((int(i), int(j), float(val)))
+                except (ValueError, TypeError): pass
         else:
-            break
-            
-    # Aleatoriedad inicial
-    open_list = list(open_indices)
-    if len(open_list) > 2:
-        num_swap = max(1, int(len(open_list) * 0.3)) # 30% de aleatoriedad
-        random.shuffle(open_list)
-        to_remove = open_list[:num_swap]
+            print(f"[Solver] Advertencia: Modo '{mode}' no reconocido para procesar asignaciones.")
+
+        print(f"[Solver] Asignaciones filtradas: {len(assignments)}")
+        print(f"[Solver] Óptimo encontrado. Costo = {total_cost:,.2f}")
+        return total_cost, open_facilities, assignments
+
+    except Exception as e:
+        print(f"[Solver] Error en 'solve_optimal': {e}")
+        return None, None, None
+    finally:
+        if ampl:
+            ampl.close() # Asegurarse de cerrar AMPL y liberar la licencia
+
+
+class AMPLWrapper:
+    def __init__(self, dat_file_path, mod_file_path, solver="gurobi", gurobi_opts=None):
+        """
+        Carga el modelo y los datos UNA SOLA VEZ al ser instanciado.
+        (Solo se usa para leer datos iniciales, no para resolver)
+        """
+        self.ampl = AMPL()
+        self.ampl.setOption('solver', solver)
+        if gurobi_opts is None:
+            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' # Opciones por defecto (fallback)
+        self.ampl.setOption('gurobi_options', gurobi_opts)
         
-        for rem in to_remove:
-            open_indices.remove(rem)
-            current_cap -= capacities[rem]
-            
-    # Rellenar
-    all_locs = list(capacities.keys())
-    random.shuffle(all_locs)
-    for loc in all_locs:
-        if current_cap >= target_demand:
-            break
-        if loc not in open_indices:
-            open_indices.add(loc)
-            current_cap += capacities[loc]
-            
-    return open_indices
-
-def perturb_solution(current_sol, all_locs_set, strength=3):
-    """Mecanismo de escape."""
-    new_sol = current_sol.copy()
-    current_list = list(new_sol)
-    closed_list = list(all_locs_set - new_sol)
-    
-    # 1. Cerrar aleatorios
-    if len(current_list) >= strength:
-        to_close = random.sample(current_list, strength)
-        for loc in to_close:
-            new_sol.remove(loc)
-    
-    # 2. Abrir aleatorios
-    if len(closed_list) >= strength:
-        to_open = random.sample(closed_list, strength)
-        for loc in to_open:
-            new_sol.add(loc)
-            
-    return new_sol
-
-def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
-    start_time = time.time()
-    n_locs = ampl_wrapper.n_locations
-    all_locs_set = set(range(1, n_locs + 1))
-    
-    # Esto nos da el valor de referencia para calcular el porcentaje
-    lower_bound = ampl_wrapper.calculate_relaxed_lower_bound()
-    if lower_bound <= 0: lower_bound = 0.0001 # Protección
-    
-    # 1. Solución Inicial
-    print("[Heuristic] Generando solución inicial...")
-    current_sol = generate_initial_solution(n_locs, ampl_wrapper.total_demand, ampl_wrapper.capacities)
-    
-    current_cost = ampl_wrapper.solve_subproblem(current_sol)
-    
-    # Manejo de infactibilidad inicial
-    if current_cost == float('inf'):
-        print("[Heuristic] Solución inicial infactible. Abriendo más centros...")
-        closed = list(all_locs_set - current_sol)
-        random.shuffle(closed)
-        to_add = closed[:int(len(closed)*0.2)]
-        for loc in to_add:
-            current_sol.add(loc)
-        current_cost = ampl_wrapper.solve_subproblem(current_sol)
-
-    best_sol = current_sol.copy()
-    best_cost = current_cost
-    
-    # Calcular Gap Inicial
-    initial_gap = ((best_cost - lower_bound) / lower_bound) * 100
-    print(f"[Heuristic] Costo Inicial: {current_cost:,.2f} | GAP: {initial_gap:.2f}% (Distancia al óptimo teórico)")
-    
-    tabu_list = deque(maxlen=tenure)
-    tabu_set = set()
-    
-    no_improve_iter = 0
-    max_stagnation = 15 
-    
-    for it in range(max_iter):
-        current_open_list = list(current_sol)
-        current_closed_list = list(all_locs_set - current_sol)
+        print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
+        self.ampl.read(mod_file_path)
+        self.ampl.readData(dat_file_path)
+        print("[Wrapper] Modelo y datos cargados.")
         
-        current_sample_size = sample_size
-        if no_improve_iter > 5:
-            current_sample_size = int(sample_size * 1.5)
-
-        best_neighbor_cost = float('inf')
-        best_neighbor_sol = None
-        best_move = None 
+        # Guardar referencias a las entidades de AMPL
+        self.facility_var = self.ampl.getVariable('x')
+        self.assignment_var = self.ampl.getVariable('y')
+        self.total_cost_obj = self.ampl.getObjective('Total_Cost')
         
-        actual_sample = min(current_sample_size, len(current_open_list) * len(current_closed_list))
+        # Guardar N_Locations (para la heurística)
+        self.n_locations = int(self.ampl.getParameter('loc').value())
+        self.all_locations_indices = list(range(1, self.n_locations + 1))
+
+        print("[Wrapper] Calculando demanda total y capacidades...")
+        try:
+            self.demands = self.ampl.getParameter('dem').getValues().toDict()
+            self.capacities = self.ampl.getParameter('ICap').getValues().toDict()
+        except Exception as e:
+            print(f"[Wrapper] ERROR: No se pudieron leer parámetros 'dem' o 'ICap'. ¿Están en el .dat?")
+            raise e
+            
+        # Calcular demanda total
+        self.total_demand = sum(self.demands.values())
         
-        for _ in range(actual_sample):
-            u = random.choice(current_closed_list) 
-            v = random.choice(current_open_list)   
-            
-            is_tabu = (u in tabu_set) or (v in tabu_set)
-            
-            neighbor = current_sol.copy()
-            neighbor.add(u)
-            neighbor.remove(v)
-            
-            cost = ampl_wrapper.solve_subproblem(neighbor)
-            
-            if is_tabu and cost < best_cost:
-                is_tabu = False
-            
-            if not is_tabu and cost < float('inf'):
-                if cost < best_neighbor_cost:
-                    best_neighbor_cost = cost
-                    best_neighbor_sol = neighbor
-                    best_move = (u, v)
+        # Crear una lista de tuplas (capacidad, indice) para la heurística
+        # Ordenada de mayor a menor capacidad
+        self.capacity_list = sorted(
+            [(cap, int(j)) for j, cap in self.capacities.items() if cap > 0],
+            reverse=True 
+        )
+        print(f"[Wrapper] Demanda Total Detectada: {self.total_demand:,.0f}")
+        if not self.capacity_list:
+            print("[Wrapper] ADVERTENCIA: No se encontraron capacidades > 0.")
 
-        # --- Lógica de movimiento ---
-        if best_neighbor_sol is not None:
-            current_sol = best_neighbor_sol
-            current_cost = best_neighbor_cost
-            
-            u, v = best_move
-            tabu_list.append(u)
-            tabu_list.append(v)
-            tabu_set = set(tabu_list)
-            
-            # --- Cálculo del gap ---
-            gap = ((current_cost - lower_bound) / lower_bound) * 100
-            gap_str = f"{gap:.2f}%"
-            
-            if current_cost < best_cost:
-                best_cost = current_cost
-                best_sol = current_sol.copy()
-                no_improve_iter = 0
-                print(f"[*] Iter {it+1}: Récord -> {best_cost:,.2f} | GAP: {gap_str}")
-            else:
-                no_improve_iter += 1
-                if (it+1) % 5 == 0:
-                    print(f"    Iter {it+1}: Actual {current_cost:,.2f} | GAP: {gap_str} | Stagnation: {no_improve_iter}/{max_stagnation}")
+    def get_n_locations(self):
+        """Devuelve el número de localizaciones para la heurística."""
+        return self.n_locations
 
-        else:
-            no_improve_iter += 2 
-            print(f"[!] Iter {it+1}: Sin vecinos válidos.")
+    def get_total_demand(self):
+        """Retorna la demanda total de todos los clientes."""
+        return self.total_demand
 
-        # --- Perturbación ---
-        if no_improve_iter >= max_stagnation:
-            print(f"[>>>] PERTURBACIÓN ACTIVADA (Stagnation {no_improve_iter}) [<<<]")
-            strength = max(3, int(len(current_sol) * 0.1))
-            current_sol = perturb_solution(best_sol, all_locs_set, strength=strength)
-            current_cost = ampl_wrapper.solve_subproblem(current_sol)
-            
-            # Mostrar gap post-perturbación
-            gap = ((current_cost - lower_bound) / lower_bound) * 100
-            print(f"      Reinicio en costo: {current_cost:,.2f} | GAP: {gap:.2f}%")
-            
-            tabu_list.clear()
-            tabu_set.clear()
-            no_improve_iter = 0
+    def get_capacity_list(self):
+        """Retorna la lista de (capacidad, indice) ordenada."""
+        return self.capacity_list
 
-    total_time = time.time() - start_time
-    
-    final_gap = ((best_cost - lower_bound) / lower_bound) * 100
-    print(f"\n[Fin] Mejor Costo: {best_cost:,.2f} | Gap Final: {final_gap:.2f}%")
-    
-    return best_cost, list(best_sol), total_time
+
+    def solve_assignment_persistent(self, open_facilities_indices):
+        """
+        Resuelve la asignación usando la instancia AMPL persistente.
+        Esto es llamado miles de veces por la heurística.
+        """
+        try:
+            # 1. Fijar las variables 'x' (centros abiertos)
+            open_set = set(open_facilities_indices)
+            values_dict = {}
+            for j in self.all_locations_indices:
+                values_dict[j] = 1.0 if j in open_set else 0.0
+
+            self.facility_var.set_values(values_dict)
+
+            # 2. Resolver
+            self.ampl.solve()
+            try:
+                cost = self.total_cost_obj.value()
+                
+                # Si el costo es None (raro, pero puede pasar)
+                if cost is None:
+                    return float('inf')
+                    
+                return float(cost) # Devolver el costo, sea óptimo o no
+            
+            except Exception:
+                # Esta excepción se activa si NO hay solución (infactible)
+                # y .value() falla.
+                return float('inf')
+
+        except Exception as e:
+            # Esta es una excepción de más alto nivel (ej. AMPL crashea)
+            print(f"[Wrapper] ERROR en solve_assignment_persistent: {e}")
+            return float('inf')
+
+    def get_final_solution(self, open_facilities_indices, mode):
+        """
+        Se llama una vez al final de la heurística para obtener 
+        el costo Y la lista de asignaciones.
+        """
+        # Obtener el costo final usando el método persistente
+        final_cost = self.solve_assignment_persistent(open_facilities_indices)
+
+        if final_cost == float('inf'):
+            return final_cost, []
+        
+        print("[Wrapper] Extrayendo asignación final...")
+        try:
+            # 2. re-resolver en la instancia persistente (1 sola vez)
+            # Esto es necesario para que .getValues() tenga los datos correctos
+            open_set = set(open_facilities_indices)
+            values_dict = {}
+            for j in self.all_locations_indices:
+                values_dict[j] = 1.0 if j in open_set else 0.0
+            self.facility_var.set_values(values_dict)
+            self.ampl.solve() # Esta llamada es segura (solo 1 vez)
+            
+            assign_dict = self.assignment_var.getValues().toDict()
+        except Exception as e:
+            print(f"[Wrapper] Error extrayendo asignación final: {e}")
+            return final_cost, [] # Error
+        
+        assignments = []
+        threshold = 0.0001 if mode == "MS" else 0.9
+        for (i, j), val in assign_dict.items():
+            try:
+                if float(val) > threshold:
+                    if mode == "SS":
+                        assignments.append((int(i), int(j)))
+                    else: # MS
+                        assignments.append((int(i), int(j), float(val)))
+            except (ValueError, TypeError):
+                pass
+        
+        return final_cost, assignments
+
+    def close(self):
+        """Cierra la instancia de AMPL."""
+        try:
+            self.ampl.close()
+            print("[Wrapper] Instancia AMPL cerrada.")
+        except:
+            pass

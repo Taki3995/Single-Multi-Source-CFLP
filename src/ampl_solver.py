@@ -11,7 +11,7 @@ class AMPLWrapper:
         """
         self.ampl = AMPL()
         self.mode = mode
-        
+        self.ampl.setOption('solver_msg', 0)
         self.ampl.setOption('solver', 'gurobi')
         
         if mode == "SS":
