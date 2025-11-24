@@ -66,7 +66,6 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
     n_locs = ampl_wrapper.n_locations
     all_locs_set = set(range(1, n_locs + 1))
     
-    # --- NUEVO: CALCULAR COTA INFERIOR ---
     # Esto nos da el valor de referencia para calcular el porcentaje
     lower_bound = ampl_wrapper.calculate_relaxed_lower_bound()
     if lower_bound <= 0: lower_bound = 0.0001 # Protección
@@ -135,7 +134,7 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
                     best_neighbor_sol = neighbor
                     best_move = (u, v)
 
-        # --- LÓGICA DE MOVIMIENTO ---
+        # --- Lógica de movimiento ---
         if best_neighbor_sol is not None:
             current_sol = best_neighbor_sol
             current_cost = best_neighbor_cost
@@ -145,7 +144,7 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
             tabu_list.append(v)
             tabu_set = set(tabu_list)
             
-            # --- CALCULO DEL GAP ---
+            # --- Cálculo del gap ---
             gap = ((current_cost - lower_bound) / lower_bound) * 100
             gap_str = f"{gap:.2f}%"
             
@@ -153,7 +152,6 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
                 best_cost = current_cost
                 best_sol = current_sol.copy()
                 no_improve_iter = 0
-                # PRINT IMPORTANTE: Nuevo récord con su GAP
                 print(f"[*] Iter {it+1}: Récord -> {best_cost:,.2f} | GAP: {gap_str}")
             else:
                 no_improve_iter += 1
@@ -164,7 +162,7 @@ def run_tabu_search(ampl_wrapper, max_iter, tenure, sample_size):
             no_improve_iter += 2 
             print(f"[!] Iter {it+1}: Sin vecinos válidos.")
 
-        # --- PERTURBACIÓN ---
+        # --- Perturbación ---
         if no_improve_iter >= max_stagnation:
             print(f"[>>>] PERTURBACIÓN ACTIVADA (Stagnation {no_improve_iter}) [<<<]")
             strength = max(3, int(len(current_sol) * 0.1))

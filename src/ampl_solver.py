@@ -6,8 +6,8 @@ from amplpy import AMPL
 class AMPLWrapper:
     def __init__(self, dat_file_path, mod_file_path, mode="MS"):
         """
-        Inicializa AMPL y carga el modelo UNA sola vez.
-        Utilizado principalmente por la heurística.
+        Inicializa AMPL y carga el modelo una sola vez.
+        (Lo utiliza la heurística)
         """
         self.ampl = AMPL()
         self.mode = mode
@@ -16,11 +16,9 @@ class AMPLWrapper:
         
         if mode == "SS":
             # Single Source (Entero)
-            # ADVERTENCIA: Sin límite de tiempo, si el subproblema es difícil,
-            # la heurística esperará indefinidamente hasta que Gurobi termine.
             gurobi_opts = "outlev=0 threads=0 presolve=2 mipgap=0.01 mipfocus=1 NodefileStart=4.0"
         else:
-            # Multi Source (Lineal/Continuo) - Generalmente muy rápido.
+            # Multi Source (Lineal/Continuo)
             gurobi_opts = "outlev=0 threads=0 presolve=2 method=2 NodefileStart=4.0"
 
         self.ampl.setOption('gurobi_options', gurobi_opts)
@@ -31,7 +29,7 @@ class AMPLWrapper:
         t0 = time.time()
         self.ampl.read(mod_file_path)
         self.ampl.readData(dat_file_path)
-        print(f"[Wrapper] Carga completada en {time.time()-t0:.2f}s")
+        print(f"[Wrapper] Carga completada")
 
         self.var_x = self.ampl.getVariable('x')
         self.var_y = self.ampl.getVariable('y')
@@ -55,28 +53,21 @@ class AMPLWrapper:
     def calculate_relaxed_lower_bound(self):
         """
         Calcula la Cota Inferior (Lower Bound) relajando el problema.
-        Esto nos da un valor de referencia (el 0% de Gap).
+        Esto nos da un valor de referencia (0% de Gap).
         """
-        print("[Wrapper] Calculando Cota Inferior teórica (Referencia para el 0%)...")
-        
-        # 1. Guardar configuración actual
-        # (No es necesario guardar valores de X porque la heurística los sobrescribe siempre)
-        
-        # 2. Configurar solver para relajación rápida (LP)
-        # method=2 es Barrera (muy rápido para 5000x5000 relajado)
+        print("[Wrapper] Calculando Cota Inferior teórica...")
+        # Configurar solver para relajación rápida (LP)
+        # method=2 es Barrera
         current_opts = self.ampl.getOption('gurobi_options')
         self.ampl.setOption('gurobi_options', "outlev=0 method=2 presolve=2")
         
-        # 3. Liberar variables X (unfix) para que el solver decida los mejores centros teóricos
+        # Liberar variables X (unfix) para que el solver decida los mejores centros teóricos
         self.var_x.unfix()
         
-        # 4. Relajar integridadd (Solo si estamos en SS, aunque en MS ya es relajado 'y', x sigue binario)
-        # Para obtener una cota inferior rápida, dejamos que AMPL resuelva el modelo tal cual
-        # pero con X libre. Gurobi resolverá la relajación lineal inicial rápido.
-        
+        # Relajar integridadd (Solo si estamos en SS, aunque en MS ya es relajado 'y', x sigue binario)
         self.ampl.solve()
         
-        # 5. Obtener valor
+        # Obtener valor
         try:
             lb = self.obj.value()
         except:
@@ -84,7 +75,7 @@ class AMPLWrapper:
             
         print(f"[Wrapper] Cota Inferior encontrada: {lb:,.2f}")
         
-        # 6. Restaurar opciones
+        # Restaurar opciones
         self.ampl.setOption('gurobi_options', current_opts)
         
         return lb
@@ -121,9 +112,8 @@ class AMPLWrapper:
         open_facilities = [int(k) for k, v in x_dict.items() if v > 0.5]
         
         assignments = []
-        print("[Wrapper] Extrayendo matriz de asignación (esto puede tomar RAM)...")
+        print("[Wrapper] Extrayendo matriz de asignación...")
         
-        # Usamos Pandas para gestión eficiente de memoria
         y_df = self.var_y.getValues().toPandas()
         
         threshold = 0.001 if self.mode == "MS" else 0.9
@@ -145,25 +135,18 @@ class AMPLWrapper:
 
 def solve_exact_full(dat_path, mod_path, mode):
     """
-    Función para resolver el problema COMPLETO buscando el ÓPTIMO REAL.
-    SIN NINGÚN LÍMITE DE TIEMPO.
+    Función para resolver el problema completo buscando el óptimo real.
+    outlev=1 muestra el log en consola; mipgap=0.0 busca el optimo estricto; 
+    threads=0 usa todos los nucleos de la cpu; nodefilestart=4 escribe el arbol en el 
+    disco si supera los 4gb.
     """
     wrapper = AMPLWrapper(dat_path, mod_path, mode)
-    
-    # --- CONFIGURACIÓN PARA ÓPTIMO GLOBAL ---
-    # outlev=1: Mostrar log en consola.
-    # mipgap=0.0: Buscar el óptimo matemático estricto.
-    # threads=0: Usar todos los núcleos de la CPU.
-    # NodefileStart=0.5: Protege tu RAM escribiendo el árbol en disco si supera 0.5 GB.
-    
-    print("[Exact] Configurando Gurobi para búsqueda de óptimo global (Sin límite de tiempo)...")
-    
-    # Eliminamos timelimit completamente.
+    print("[Exact] Configurando Gurobi para búsqueda de óptimo global...")
     gurobi_opts = "outlev=1 mipgap=0.0 presolve=2 threads=0 NodefileStart=4.0"
     
     wrapper.ampl.setOption('gurobi_options', gurobi_opts)
     
-    print("[Exact] Comenzando resolución indefinida... (Usa Ctrl+C si necesitas detenerlo manualmente)")
+    print("[Exact] Comenzando resolución...")
     
     # Liberar X para que Gurobi decida
     wrapper.var_x.unfix() 

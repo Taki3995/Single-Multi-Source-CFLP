@@ -44,7 +44,7 @@ def main(args):
         # 1. Setup Wrapper
         wrapper = ampl_solver.AMPLWrapper(dat_path, mod_path, args.mode)
         
-        # 2. Run Heuristic
+        # 2. Correr Heuristica
         cost, best_open_indices, time_taken = heuristic.run_tabu_search(
             wrapper, 
             max_iter=args.iterations, 
@@ -54,13 +54,13 @@ def main(args):
         
         print(f"--- Finalizando... Re-calculando asignación final detallada ---")
         
-        # 3. Reconstruct Final Solution
+        # 3. Reconstruir solución final
         final_cost = wrapper.solve_subproblem(best_open_indices)
         _, final_facs, final_assigns = wrapper.get_final_solution_details()
         
         wrapper.close()
         
-        # 4. Save
+        # 4. Guardar
         utils.save_solution_to_file(SOL_DIR, args.instance, args.mode, final_cost, final_facs, final_assigns)
         utils.update_report_excel(REP_FILE, args.instance, args.mode, heuristic_cost=final_cost, iterations=args.iterations)
         

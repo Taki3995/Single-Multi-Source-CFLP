@@ -1,7 +1,3 @@
-"""   
-Funciones de ayuda
-"""
-
 import os
 import pandas as pd
 
@@ -27,12 +23,12 @@ def save_solution_to_file(sol_dir, instance_name, mode, cost, open_facilities, a
             if all(isinstance(a, tuple) and len(a) == 2 for a in assignments):
                 # Cliente C es atendido por Centro J
                 for cli, loc in assignments:
-                    f.write(f"  Cliente {cli} -> Centro {loc}\n")
+                    f.write(f"Cliente {cli} -> Centro {loc}\n")
             
             # Para MS (cliente, centro, fraccion)
             elif all(isinstance(a, tuple) and len(a) == 3 for a in assignments):
                 for cli, loc, val in assignments:
-                    f.write(f"  Cliente {cli} -> Centro {loc} (Valor: {val})\n")
+                    f.write(f"Cliente {cli} -> Centro {loc} (Valor: {val})\n")
             else:
                 f.write(str(assignments))
 

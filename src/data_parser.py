@@ -15,7 +15,7 @@ def parse_and_convert(txt_file_path, dat_file_path):
         print(f"Error: No se encontró el archivo de entrada: {txt_file_path}")
         return
 
-    # --- 1. Leer Cabecera (loc, cli) ---
+    # --- Leer Cabecera (loc, cli) ---
     current_line_index = 0
     try:
         parts = lines[current_line_index].strip().split()
@@ -26,19 +26,19 @@ def parse_and_convert(txt_file_path, dat_file_path):
         print(f"Error leyendo cabecera (loc, cli) de {txt_file_path}: {e}")
         return
 
-    # --- 2. Omitir primer separador (*) ---
+    # --- Omitir primer separador (*) ---
     while '*' not in lines[current_line_index]:
         current_line_index += 1
     current_line_index += 1 # Se mueve a la línea siguiente al *
 
-    # --- Listas para guardar los datos ---
+    # Listas para guardar los datos
     out_lines = []
     
     # Añadir cabeceras del .dat
     out_lines.append(f"param cli := {n_clients};\n")
     out_lines.append(f"param loc := {n_locations};\n\n")
 
-    # --- 3. Bloque 1: Leer Datos de Localizaciones (ICap y FC) ---
+    # --- Bloque 1: Leer Datos de Localizaciones (ICap y FC) ---
     print(f"Leyendo {n_locations} localizaciones...")
     try:
         fc_str = ["param FC :="]
@@ -62,7 +62,7 @@ def parse_and_convert(txt_file_path, dat_file_path):
         print(f"Error leyendo el bloque de localizaciones: {e}")
         return
 
-    # --- Función auxiliar para leer bloques continuos de números ---
+    # Función auxiliar para leer bloques continuos de números
     def read_continuous_block(start_index, total_count):
         """Lee un bloque de 'total_count' números que pueden estar en varias líneas."""
         data_list = []
@@ -100,7 +100,7 @@ def parse_and_convert(txt_file_path, dat_file_path):
         print("Error: Se esperaba un separador '*' después del bloque de localizaciones.")
         return
 
-    # --- 4. Bloque 2: Leer Demandas (dem) ---
+    # --- Bloque 2: Leer Demandas (dem) ---
     print(f"Leyendo {n_clients} demandas...")
     try:
         all_demands, current_line_index_after_dem = read_continuous_block(current_line_index, n_clients)
@@ -121,7 +121,7 @@ def parse_and_convert(txt_file_path, dat_file_path):
         print(f"Error leyendo el bloque de demandas: {e}")
         return
 
-    # --- 5. Bloque 3: Leer Costos de Transporte (TC) ---
+    # --- Bloque 3: Leer Costos de Transporte (TC) ---
     print(f"Leyendo {n_clients}x{n_locations} costos de transporte...")
     try:
         total_costs = n_clients * n_locations
@@ -148,7 +148,7 @@ def parse_and_convert(txt_file_path, dat_file_path):
         print(f"Error leyendo el bloque de costos de transporte: {e}")
         return
 
-    # --- 6. Escribir el archivo .dat ---
+    # --- Escribir el archivo .dat ---
     try:
         os.makedirs(os.path.dirname(dat_file_path), exist_ok=True)
         
