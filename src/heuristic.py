@@ -117,7 +117,7 @@ def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iteration
     # Si tras 10 intentos falla, abortamos.
     if current_cost == float('inf'):
         print("[Heuristic] ERROR: No se pudo generar una solución inicial factible.")
-        return float('inf'), [], 0
+        return float('inf'), [], 0, []
 
     # Inicializamos el "Mejor Global"
     best_solution_set = current_solution_set
@@ -128,6 +128,13 @@ def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iteration
     # ---------------------------------------------------------
     # 2. Bucle Principal de Búsqueda
     # ---------------------------------------------------------
+    
+    # Inicializamos la lista de historial
+    history = []
+    # Agregamos el punto inicial
+    if best_cost != float('inf'):
+        history.append(best_cost)
+
     iterations_run = 0
     for i in range(max_iterations):
         iterations_run += 1
@@ -190,6 +197,8 @@ def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iteration
         else:
             # Estancamiento Total: No se halló ningún vecino factible en el muestreo.
             print(f"[Heuristic] Estancamiento total en iter {i}. (Todos infactibles). Reiniciando vecindario...")
+            # Aún así guardamos el historial para que no quede hueco
+            history.append(best_cost)
             continue
 
         # Actualizar la memoria a corto plazo (Lista Tabú)
@@ -205,8 +214,11 @@ def run_tabu_search(ampl_wrapper, dat_file, mod_file, n_locations, max_iteration
             # Logging reducido para no saturar la consola
             if i % 10 == 0: 
                 print(f"[Heuristic] Iter {i+1}. Actual: {current_cost:,.2f} | Mejor: {best_cost:,.2f}")
+        
+        # Guardamos el mejor costo de esta iteración en el historial
+        history.append(best_cost)
 
     total_time = time.time() - start_time
     print(f"\n[Heuristic] Fin. Mejor Costo: {best_cost:,.2f}. Tiempo: {total_time:.2f}s")
     
-    return best_cost, list(best_solution_set), iterations_run
+    return best_cost, list(best_solution_set), iterations_run, history

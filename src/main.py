@@ -120,10 +120,25 @@ def main(args):
         print(f"[Main] Instancia cargada. Locs: {ampl_wrapper.get_n_locations()}")
 
         # Ejecuta el algoritmo Tabu Search
-        heuristic_cost, best_facilities, iters_done = heuristic.run_tabu_search(
+        # Desempaquetamos la nueva variable 'history'
+        heuristic_cost, best_facilities, iters_done, history = heuristic.run_tabu_search(
             ampl_wrapper, dat_file, mod_file, ampl_wrapper.get_n_locations(),
             args.iterations, args.tenure, args.sample
         )
+
+        # Guardamos el historial en un CSV
+        try:
+            import csv
+            hist_file = os.path.join(SOLUTIONS_DIR, f"history_{args.instance}_{args.mode}.csv")
+            with open(hist_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Iteration", "Cost"])
+                for idx, val in enumerate(history):
+                    writer.writerow([idx, val])
+            print(f"[Main] Historial de convergencia guardado en {hist_file}")
+        except Exception as e:
+            print(f"[Main] Advertencia: No se pudo guardar el historial CSV: {e}")
+
         
         print(f"[Main] Heurística fin. Mejor costo est.: {heuristic_cost}")
 

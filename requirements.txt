@@ -2,3 +2,4 @@ pandas
 amplpy
 argparse
 openpyxl
+matplotlib
