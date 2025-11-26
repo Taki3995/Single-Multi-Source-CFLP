@@ -1,6 +1,5 @@
 """
 Traductor entre python y AMPL. 
-Contiene la corrección crítica de usar .fix() en lugar de .set_values().
 """
 
 import os
@@ -46,10 +45,8 @@ def solve_optimal(dat_file_path, mod_file_path, mode, solver="gurobi", timelimit
         except Exception:
             total_cost = None
 
-        # Verificar si es óptimo o factible
         if total_cost is None or ("optimal" not in solve_result.lower() and "solved" not in solve_result.lower()):
             print("[Solver] No se encontró una solución óptima o factible.")
-            # Intentar recuperar algo si existe
             if total_cost is not None:
                 print(f"[Solver] Retornando mejor solución encontrada (Gap > 0).")
             else:
@@ -99,25 +96,26 @@ class AMPLWrapper:
         """
         self.ampl = AMPL()
         self.ampl.setOption('solver', solver)
+        
+        # --- CORRECCIÓN VELOCIDAD I/O: SILENCIAR AMPL ---
+        self.ampl.setOption('solver_msg', 0) 
+        
         if gurobi_opts is None:
-            # Opciones muy agresivas para que los subproblemas sean rápidos
-            gurobi_opts = 'outlev=0 timelimit=1.0 mipgap=0.05' 
+            # Fallback seguro
+            gurobi_opts = 'outlev=0 timelimit=5.0 mipgap=0.05' 
         self.ampl.setOption('gurobi_options', gurobi_opts)
         
         print("[Wrapper] Leyendo modelo y datos... (esto se hace 1 vez)")
         self.ampl.read(mod_file_path)
         self.ampl.readData(dat_file_path)
         
-        # Guardar referencias
         self.facility_var = self.ampl.getVariable('x')
         self.assignment_var = self.ampl.getVariable('y')
         self.total_cost_obj = self.ampl.getObjective('Total_Cost')
         
-        # Datos estáticos
         self.n_locations = int(self.ampl.getParameter('loc').value())
         self.all_locations_indices = list(range(1, self.n_locations + 1))
 
-        # Lectura de parámetros
         try:
             self.demands = self.ampl.getParameter('dem').getValues().toDict()
             self.capacities = self.ampl.getParameter('ICap').getValues().toDict()
@@ -127,7 +125,6 @@ class AMPLWrapper:
             
         self.total_demand = sum(self.demands.values())
         
-        # Lista ordenada de capacidades (para generar solución inicial)
         self.capacity_list = sorted(
             [(cap, int(j)) for j, cap in self.capacities.items() if cap > 0],
             reverse=True 
@@ -151,21 +148,17 @@ class AMPLWrapper:
         try:
             open_set = set(open_facilities_indices)
             
-            # --- AQUÍ ESTÁ EL CAMBIO CLAVE ---
-            # Iteramos sobre TODAS las localizaciones y las fijamos a 1 o 0.
-            # Esto convierte el problema en una simple asignación.
+            # Fijar variables: esto es lo que acelera el proceso
             for j in self.all_locations_indices:
                 if j in open_set:
-                    self.facility_var[j].fix(1) # Obligatoriamente ABIERTO
+                    self.facility_var[j].fix(1)
                 else:
-                    self.facility_var[j].fix(0) # Obligatoriamente CERRADO
+                    self.facility_var[j].fix(0)
             
-            # Resolver el sub-problema (ahora es mucho más fácil para Gurobi)
             self.ampl.solve()
             
             solve_result = self.ampl.solve_result
             
-            # Verificar si es factible
             if "infeasible" in solve_result:
                 return float('inf')
 
@@ -181,10 +174,6 @@ class AMPLWrapper:
             return float('inf')
 
     def get_final_solution(self, open_facilities_indices, mode):
-        """
-        Recupera la solución detallada final.
-        """
-        # Aseguramos que el estado del solver corresponda a estos centros
         final_cost = self.solve_assignment_persistent(open_facilities_indices)
 
         if final_cost == float('inf'):
