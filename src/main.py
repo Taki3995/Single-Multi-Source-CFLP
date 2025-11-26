@@ -83,6 +83,89 @@ def main(args):
     try: mod_file = get_model_path(args.mode)
     except Exception as e: print(e); return
 
+    # Acción PLot: Ejecuta optimal -> heurístic -> Plot
+    if args.action == 'plot':
+        print("\n=== FASE 1: Calculando Óptimo Real (AMPL Puro) ===")
+        # 1. Resolver Óptimo
+        opt_cost, _, _ = ampl_solver.solve_optimal(
+            dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0.0
+        )
+        print(f"--> Costo Óptimo obtenido: {opt_cost}")
+        
+        # Guardar en reporte
+        utils.update_report_excel(REPORT_PATH, args.instance, args.mode, optimal_cost=opt_cost)
+
+        print("\n=== FASE 2: Ejecutando Heurística (AMPL + Python) ===")
+        # 2. Ejecutar Heurística
+        gurobi_opts = 'outlev=0 timelimit=5.0 mipgap=0.05' 
+        try:
+            wrapper = ampl_solver.AMPLWrapper(dat_file, mod_file, solver="gurobi", gurobi_opts=gurobi_opts)
+            heu_cost, best_facilities, iters_done, history = heuristic.run_tabu_search(
+                wrapper, dat_file, mod_file, wrapper.get_n_locations(),
+                args.iterations, args.tenure, args.sample
+            )
+            
+            # Refinamiento final (para guardar el dato correcto en excel)
+            if heu_cost != float('inf'):
+                print("[Main] Refinando asignación final...")
+                wrapper.ampl.setOption('gurobi_options', 'outlev=0 timelimit=10.0 mipgap=0.0')
+                final_c, final_assigns = wrapper.get_final_solution(best_facilities, args.mode)
+                if final_c != float('inf'): heu_cost = final_c
+            else:
+                final_assigns = []
+            
+            wrapper.close()
+
+            # Guardar Solución y Reporte
+            os.makedirs(SOLUTIONS_DIR, exist_ok=True)
+            utils.save_solution_to_file(SOLUTIONS_DIR, args.instance, args.mode, heu_cost, best_facilities, final_assigns)
+            utils.update_report_excel(REPORT_PATH, args.instance, args.mode, heuristic_cost=heu_cost, iterations=iters_done)
+
+        except Exception as e:
+            print(f"[Main] Error en la fase heurística: {e}")
+            return
+
+        print("\n=== FASE 3: Generando Gráfico Comparativo ===")
+        try:
+            import matplotlib.pyplot as plt
+            
+            plt.figure(figsize=(10, 6))
+            
+            # A. Graficar curva de convergencia de la heurística
+            plt.plot(range(len(history)), history, marker='o', markersize=3, linestyle='-', color='#1f77b4', label='Heurística (Tabu)')
+            
+            # B. Graficar línea horizontal del óptimo (Si existe)
+            if opt_cost is not None:
+                plt.axhline(y=opt_cost, color='r', linestyle='--', linewidth=2, label=f'Óptimo Real ({opt_cost:,.0f})')
+                
+                # Calcular GAP final para ponerlo en el título
+                if heu_cost != float('inf'):
+                    gap = ((heu_cost - opt_cost) / opt_cost) * 100
+                    title_extra = f" | GAP Final: {gap:.2f}%"
+                else:
+                    title_extra = ""
+            else:
+                title_extra = ""
+
+            plt.title(f'Convergencia: {args.instance} ({args.mode}){title_extra}', fontsize=12)
+            plt.xlabel('Iteraciones')
+            plt.ylabel('Costo Total')
+            plt.legend()
+            plt.grid(True, alpha=0.5)
+            
+            # Guardar
+            img_path = os.path.join(SOLUTIONS_DIR, f"comparison_{args.instance}_{args.mode}.png")
+            plt.savefig(img_path, dpi=120)
+            plt.close()
+            print(f"[Main] ¡Gráfico generado exitosamente en: {img_path}!")
+
+        except ImportError:
+            print("[Main] Error: No tienes matplotlib instalado.")
+        except Exception as e:
+            print(f"[Main] Error generando gráfico: {e}")
+        
+        return
+
     # --- ACCIÓN 2: Resolución Exacta (Benchmark) ---
     # Utiliza Gurobi directamente sobre el modelo completo para encontrar el óptimo matemático.
     if args.action == 'optimal':
@@ -125,20 +208,6 @@ def main(args):
             ampl_wrapper, dat_file, mod_file, ampl_wrapper.get_n_locations(),
             args.iterations, args.tenure, args.sample
         )
-
-        # Guardamos el historial en un CSV
-        try:
-            import csv
-            hist_file = os.path.join(SOLUTIONS_DIR, f"history_{args.instance}_{args.mode}.csv")
-            with open(hist_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(["Iteration", "Cost"])
-                for idx, val in enumerate(history):
-                    writer.writerow([idx, val])
-            print(f"[Main] Historial de convergencia guardado en {hist_file}")
-        except Exception as e:
-            print(f"[Main] Advertencia: No se pudo guardar el historial CSV: {e}")
-
         
         print(f"[Main] Heurística fin. Mejor costo est.: {heuristic_cost}")
 
@@ -166,7 +235,7 @@ if __name__ == "__main__":
     # Configuración de argumentos de línea de comandos
     parser = argparse.ArgumentParser()
     # -a: Acción a realizar (parsear datos, resolver óptimo o correr heurística)
-    parser.add_argument("-a", "--action", required=True, choices=["parse", "optimal", "heuristic"])
+    parser.add_argument("-a", "--action", required=True, choices=["parse", "optimal", "heuristic", "plot"])
     # -i: Nombre de la instancia (ej: p1, cap41, etc.)
     parser.add_argument("-i", "--instance", type=str)
     # -m: Modo del problema (SS: Single Source, MS: Multi Source)

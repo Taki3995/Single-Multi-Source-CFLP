@@ -140,14 +140,32 @@ python src/main.py -a heuristic -i 5000x5000_1 -m SS -n 20
 python src/main.py -a heuristic -i Instance50x50 -m MS -n 100 -s 200
 ```
 ```bash
-python src/main.py -a heuristic -i Instance1000x300 -m MS -n 100 -s 200
+python src/main.py -a heuristic -i Instance1000x300 -m MS -n 200 -s 100
 ```
 ```bash
-python src/main.py -a heuristic -i 2000x2000_1 -m MS -n 60 -s 100
+python src/main.py -a heuristic -i 2000x2000_1 -m MS -n 60 -s 30
 ```
 ```bash
-python src/main.py -a heuristic -i 4000x4000_1 -m MS -n 50 -s 70
+python src/main.py -a heuristic -i 4000x4000_1 -m MS -n 50 -s 20
 ```
 ```bash
-python src/main.py -a heuristic -i 5000x5000_1 -m MS -n 30 -s 50
+python src/main.py -a heuristic -i 5000x5000_1 -m MS -n 30 -s 15
+```
+
+### Graficar ejemplos para comparar Optimal vs heuristic
+
+```bash
+python src/main.py -a plot -i Instance50x50 -m MS -n 60 -s 50
+```
+```bash
+python src/main.py -a plot -i Instance1000x300 -m MS -n 50 -s 30
+```
+```bash
+python src/main.py -a plot -i 2000x2000_1 -m MS -n 40 -s 10
+```
+```bash
+python src/main.py -a plot -i 4000x4000_1 -m MS -n 25 -s 5
+```
+```bash
+python src/main.py -a plot -i 5000x5000_1 -m MS -n 20 -s 5
 ```
