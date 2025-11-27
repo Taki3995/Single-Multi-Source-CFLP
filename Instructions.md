@@ -143,7 +143,7 @@ python src/main.py -a heuristic -i Instance50x50 -m MS -n 100 -s 200
 python src/main.py -a heuristic -i Instance1000x300 -m MS -n 200 -s 100
 ```
 ```bash
-python src/main.py -a heuristic -i 2000x2000_1 -m MS -n 60 -s 30
+python src/main.py -a heuristic -i 2000x2000_1 -m MS -n 80 -s 30
 ```
 ```bash
 python src/main.py -a heuristic -i 4000x4000_1 -m MS -n 50 -s 20
@@ -161,11 +161,11 @@ python src/main.py -a plot -i Instance50x50 -m MS -n 60 -s 50
 python src/main.py -a plot -i Instance1000x300 -m MS -n 50 -s 30
 ```
 ```bash
-python src/main.py -a plot -i 2000x2000_1 -m MS -n 40 -s 10
+python src/main.py -a plot -i 2000x2000_1 -m MS -n 40 -s 10 --skip-optimal
 ```
 ```bash
-python src/main.py -a plot -i 4000x4000_1 -m MS -n 25 -s 5
+python src/main.py -a plot -i 4000x4000_1 -m MS -n 25 -s 5 --skip-optimal
 ```
 ```bash
-python src/main.py -a plot -i 5000x5000_1 -m MS -n 20 -s 5
+python src/main.py -a plot -i 5000x5000_1 -m MS -n 20 -s 5 --skip-optimal
 ```

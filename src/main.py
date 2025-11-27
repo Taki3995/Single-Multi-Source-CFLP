@@ -85,15 +85,21 @@ def main(args):
 
     # Acción PLot: Ejecuta optimal -> heurístic -> Plot
     if args.action == 'plot':
-        print("\n=== FASE 1: Calculando Óptimo Real (AMPL Puro) ===")
-        # 1. Resolver Óptimo
-        opt_cost, _, _ = ampl_solver.solve_optimal(
-            dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0.0
-        )
-        print(f"--> Costo Óptimo obtenido: {opt_cost}")
         
-        # Guardar en reporte
-        utils.update_report_excel(REPORT_PATH, args.instance, args.mode, optimal_cost=opt_cost)
+        opt_cost = None # Inicializamos costo óptimo como None
+
+        if not args.skip_optimal:
+            print("\n=== FASE 1: Calculando Óptimo Real (AMPL Puro) ===")
+            # 1. Resolver Óptimo
+            opt_cost, _, _ = ampl_solver.solve_optimal(
+                dat_file, mod_file, args.mode, solver="gurobi", timelimit=None, mipgap=0.0
+            )
+            print(f"--> Costo Óptimo obtenido: {opt_cost}")
+            
+            # Guardar en reporte
+            utils.update_report_excel(REPORT_PATH, args.instance, args.mode, optimal_cost=opt_cost)
+        else:
+            print("\n=== FASE 1: Óptimo Real OMITIDO por el usuario ===")
 
         print("\n=== FASE 2: Ejecutando Heurística (AMPL + Python) ===")
         # 2. Ejecutar Heurística
@@ -145,7 +151,7 @@ def main(args):
                 else:
                     title_extra = ""
             else:
-                title_extra = ""
+                title_extra = " (Sin referencia de Óptimo)"
 
             plt.title(f'Convergencia: {args.instance} ({args.mode}){title_extra}', fontsize=12)
             plt.xlabel('Iteraciones')
@@ -244,5 +250,8 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--iterations", type=int, default=100) # Número máximo de iteraciones
     parser.add_argument("-t", "--tenure", type=int, default=20)      # Tamaño de la lista tabú
     parser.add_argument("-s", "--sample", type=int, default=100)     # % de vecindario a explorar
+    
+    parser.add_argument("--skip-optimal", action="store_true", help="En modo plot, salta el cálculo del óptimo real.")
+    
     args = parser.parse_args()
     main(args)
